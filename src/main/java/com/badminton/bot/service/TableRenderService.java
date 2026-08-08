@@ -56,7 +56,7 @@ public class TableRenderService {
         StringBuilder sb = new StringBuilder();
         int total = slotCalculator.totalSlots();
         int[] remaining = slotCalculator.remainingCapacityPerSlot(bookings);
-        boolean anyNamed = false;
+        boolean anyOccupied = false;
 
         for (int slot = 0; slot < total; slot++) {
             String range = slotCalculator.formatSlotRange(slot, properties.slotStepMinutes());
@@ -68,17 +68,12 @@ public class TableRenderService {
             if (onSlot.isEmpty()) {
                 sb.append(" — свободно\n");
             } else {
-                anyNamed = true;
+                anyOccupied = true;
                 List<Double> knownSkills = onSlot.stream()
                         .map(b -> skills.getOrDefault(b.getTelegramUserId(), 0.0))
                         .toList();
                 double slotSkill = SlotSkillModel.slotSkill(knownSkills);
-                sb.append(" ⚡").append(SlotSkillModel.formatSlotBadge(slotSkill)).append(": ");
-                List<String> names = new ArrayList<>();
-                for (Booking b : onSlot) {
-                    names.add(nameOf(b, skills.getOrDefault(b.getTelegramUserId(), 0.0)));
-                }
-                sb.append(String.join(", ", names)).append("\n");
+                sb.append(" — ⚡").append(SlotSkillModel.formatSlotBadge(slotSkill)).append("\n");
             }
         }
 
@@ -90,15 +85,14 @@ public class TableRenderService {
         if (!waitlisted.isEmpty()) {
             sb.append("\n⏳ <b>Лист ожидания:</b>\n");
             for (Booking b : waitlisted) {
-                double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
-                sb.append("• ").append(nameOf(b, skill))
+                sb.append("• ").append(nameOf(b))
                         .append(" (").append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
                         .append(", ").append(b.getPartySize()).append(" чел.)\n");
             }
         }
 
-        if (anyNamed || !waitlisted.isEmpty()) {
-            sb.append("\n<code>·N</code> — скилл игрока 0–10, <code>⚡</code> — скилл слота (среднее), не сумма часов");
+        if (anyOccupied) {
+            sb.append("\n<code>⚡</code> — скилл слота 0–10 (среднее по игрокам)");
         }
 
         if (event.isOpen()) {
@@ -122,10 +116,9 @@ public class TableRenderService {
         return onSlot;
     }
 
-    private String nameOf(Booking b, double skill) {
+    private String nameOf(Booking b) {
         String linked = UserNames.mention(b.getDisplayName(), b.getTelegramUserId(), b.getUsername());
-        String withSkill = linked + "·" + SlotSkillModel.formatSkill(skill);
-        return b.getPartySize() > 1 ? withSkill + " +" + (b.getPartySize() - 1) : withSkill;
+        return b.getPartySize() > 1 ? linked + " +" + (b.getPartySize() - 1) : linked;
     }
 
     private String capitalize(String s) {
