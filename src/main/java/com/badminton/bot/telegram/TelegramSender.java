@@ -79,7 +79,16 @@ public class TelegramSender {
         }
     }
 
+    /**
+     * @return true если подпись актуальна (успех или «не изменилась»);
+     * false только если сообщение реально недоступно для правки.
+     */
     public boolean editCaption(Long chatId, Integer messageId, String caption, InlineKeyboardMarkup keyboard) {
+        return editCaptionResult(chatId, messageId, caption, keyboard) != EditCaptionResult.MISSING;
+    }
+
+    public EditCaptionResult editCaptionResult(Long chatId, Integer messageId, String caption,
+                                               InlineKeyboardMarkup keyboard) {
         try {
             var builder = EditMessageCaption.builder()
                     .chatId(chatId)
@@ -90,11 +99,64 @@ public class TelegramSender {
                 builder.replyMarkup(keyboard);
             }
             telegramClient.execute(builder.build());
+            return EditCaptionResult.OK;
+        } catch (TelegramApiException e) {
+            String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+            if (msg.contains("message is not modified")) {
+                // контент тот же — пробуем хотя бы обновить кнопки
+                if (keyboard != null) {
+                    tryEditReplyMarkup(chatId, messageId, keyboard);
+                }
+                return EditCaptionResult.OK;
+            }
+            if (msg.contains("message to edit not found")
+                    || msg.contains("message can't be edited")
+                    || msg.contains("message identifier is not specified")) {
+                log.warn("Пост {} в chat={} недоступен для правки: {}", messageId, chatId, e.getMessage());
+                return EditCaptionResult.MISSING;
+            }
+            log.warn("Не удалось обновить подпись сообщения {} в chat={}: {}", messageId, chatId, e.getMessage());
+            return EditCaptionResult.FAILED;
+        }
+    }
+
+    public boolean tryEditReplyMarkup(Long chatId, Integer messageId, InlineKeyboardMarkup keyboard) {
+        try {
+            telegramClient.execute(EditMessageReplyMarkup.builder()
+                    .chatId(chatId)
+                    .messageId(messageId)
+                    .replyMarkup(keyboard)
+                    .build());
             return true;
         } catch (TelegramApiException e) {
-            log.warn("Не удалось обновить подпись сообщения {} в chat={}: {}", messageId, chatId, e.getMessage());
+            String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+            if (msg.contains("message is not modified")) {
+                return true;
+            }
+            log.warn("Не удалось обновить кнопки сообщения {} в chat={}: {}", messageId, chatId, e.getMessage());
             return false;
         }
+    }
+
+    public boolean deleteMessage(Long chatId, Integer messageId) {
+        try {
+            telegramClient.execute(org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage.builder()
+                    .chatId(chatId)
+                    .messageId(messageId)
+                    .build());
+            return true;
+        } catch (TelegramApiException e) {
+            log.warn("Не удалось удалить сообщение {} в chat={}: {}", messageId, chatId, e.getMessage());
+            return false;
+        }
+    }
+
+    public enum EditCaptionResult {
+        OK,
+        /** Сообщение удалено / недоступно — можно переопубликовать. */
+        MISSING,
+        /** Временная/парсинговая ошибка — старый пост оставляем, новый не шлём. */
+        FAILED
     }
 
     public boolean editText(Long chatId, Integer messageId, String text, InlineKeyboardMarkup keyboard) {

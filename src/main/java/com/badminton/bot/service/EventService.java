@@ -154,15 +154,20 @@ public class EventService {
         var keyboard = event.isOpen()
                 ? KeyboardFactory.entryKeyboard(event.getId(), telegramProperties.botUsername())
                 : null;
-        boolean edited = telegramSender.editCaption(channelId, event.getChannelMessageId(), caption, keyboard);
-        if (!edited) {
-            // пост пропал — публикуем заново
-            event.setChannelMessageId(null);
-            event.setBookingMessageId(null);
-            eventRepository.save(event);
-            if (event.isOpen()) {
-                publishChannelPost(event);
-            }
+        Integer previousMessageId = event.getChannelMessageId();
+        var editResult = telegramSender.editCaptionResult(channelId, previousMessageId, caption, keyboard);
+        if (editResult == TelegramSender.EditCaptionResult.OK
+                || editResult == TelegramSender.EditCaptionResult.FAILED) {
+            // FAILED: не плодим дубликат в канале — оставляем старый пост
+            return;
+        }
+        // пост реально недоступен — публикуем заново (старый пытаемся убрать)
+        telegramSender.deleteMessage(channelId, previousMessageId);
+        event.setChannelMessageId(null);
+        event.setBookingMessageId(null);
+        eventRepository.save(event);
+        if (event.isOpen()) {
+            publishChannelPost(event);
         }
     }
 
