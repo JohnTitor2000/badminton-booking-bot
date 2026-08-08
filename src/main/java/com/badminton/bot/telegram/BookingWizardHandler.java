@@ -3,9 +3,11 @@ package com.badminton.bot.telegram;
 import com.badminton.bot.config.BadmintonProperties;
 import com.badminton.bot.config.TelegramProperties;
 import com.badminton.bot.domain.Booking;
+import com.badminton.bot.domain.BookingPreset;
 import com.badminton.bot.domain.Event;
 import com.badminton.bot.service.BookingChangeResult;
 import com.badminton.bot.service.BookingOutcome;
+import com.badminton.bot.service.BookingPresetService;
 import com.badminton.bot.service.BookingResult;
 import com.badminton.bot.service.BookingService;
 import com.badminton.bot.service.EventService;
@@ -44,6 +46,7 @@ public class BookingWizardHandler {
 
     private final EventService eventService;
     private final BookingService bookingService;
+    private final BookingPresetService presetService;
     private final SlotCalculator slotCalculator;
     private final BadmintonProperties badmintonProperties;
     private final TelegramProperties telegramProperties;
@@ -52,6 +55,7 @@ public class BookingWizardHandler {
 
     public BookingWizardHandler(EventService eventService,
                                  BookingService bookingService,
+                                 BookingPresetService presetService,
                                  SlotCalculator slotCalculator,
                                  BadmintonProperties badmintonProperties,
                                  TelegramProperties telegramProperties,
@@ -59,6 +63,7 @@ public class BookingWizardHandler {
                                  CommandDispatcher commandDispatcher) {
         this.eventService = eventService;
         this.bookingService = bookingService;
+        this.presetService = presetService;
         this.slotCalculator = slotCalculator;
         this.badmintonProperties = badmintonProperties;
         this.telegramProperties = telegramProperties;
@@ -76,6 +81,11 @@ public class BookingWizardHandler {
             switch (data.action()) {
                 case START -> handleStart(callbackQuery, data);
                 case CHANGE -> handleChange(callbackQuery, data);
+                case SAVE_PRESET -> handleSavePreset(callbackQuery, data);
+                case USE_PRESET -> handleUsePreset(callbackQuery, data);
+                case MANUAL -> handleManual(callbackQuery, data);
+                case CLEAR_PRESET -> handleClearPreset(callbackQuery, data);
+                case ENTRY -> handleEntry(callbackQuery, data);
                 case DURATION -> handleDuration(callbackQuery, data);
                 case SLOT -> handleSlot(callbackQuery, data);
                 case CONFIRM -> handleConfirm(callbackQuery, data);
@@ -122,10 +132,100 @@ public class BookingWizardHandler {
             return false;
         }
         Event event = eventOpt.get();
-        String text = "🏸 Записываемся на " + eventDateLabel(event) + "\n\nВыберите длительность:";
-        InlineKeyboardMarkup keyboard = KeyboardFactory.durationKeyboard(
-                eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, null);
-        return sender.sendPrivate(userId, text, keyboard);
+        Optional<BookingPreset> preset = presetService.findValid(userId);
+        if (preset.isPresent()) {
+            String label = presetLabel(preset.get());
+            String text = "🏸 Записываемся на " + eventDateLabel(event) + "\n\n"
+                    + "Сохранённый вариант: <b>" + label + "</b>\n"
+                    + "Использовать его или выбрать время вручную?";
+            return sender.sendPrivate(userId, text, KeyboardFactory.entryChoiceKeyboard(eventId, label));
+        }
+        return sender.sendPrivate(userId, manualStartText(event),
+                KeyboardFactory.durationKeyboard(eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, null));
+    }
+
+    private void handleSavePreset(CallbackQuery cq, CallbackData data) {
+        long bookingId = data.argLong(0);
+        Optional<Booking> bookingOpt = bookingService.findById(bookingId);
+        if (bookingOpt.isEmpty() || !bookingOpt.get().isActive()) {
+            sender.answerCallback(cq.getId(), "Запись не найдена", true);
+            return;
+        }
+        Booking booking = bookingOpt.get();
+        if (!booking.getTelegramUserId().equals(cq.getFrom().getId())) {
+            sender.answerCallback(cq.getId(), "Это не ваша запись", true);
+            return;
+        }
+        presetService.saveFromBooking(booking);
+        sender.answerCallback(cq.getId(), "Пресет сохранён");
+        String slotLabel = slotCalculator.formatSlotRange(booking.getStartSlot(), booking.getDurationMinutes());
+        String text = "✅ Запись: " + slotLabel + " (" + booking.getPartySize() + " чел.)\n"
+                + eventDateLabel(booking.getEvent()) + "\n\n"
+                + "💾 Пресет сохранён — в следующий раз можно выбрать его сразу.";
+        editWizardMessage(cq, text, KeyboardFactory.bookingActionsKeyboardAfterPresetSaved(bookingId));
+    }
+
+    private void handleEntry(CallbackQuery cq, CallbackData data) {
+        long eventId = data.argLong(0);
+        Optional<Event> eventOpt = eventService.findById(eventId);
+        if (eventOpt.isEmpty() || !eventOpt.get().isOpen()) {
+            sender.answerCallback(cq.getId(), "Запись на это событие уже закрыта", true);
+            return;
+        }
+        sender.answerCallback(cq.getId(), null);
+        editEntryScreen(cq, eventOpt.get(), cq.getFrom().getId());
+    }
+
+    private void handleUsePreset(CallbackQuery cq, CallbackData data) {
+        long eventId = data.argLong(0);
+        Optional<Event> eventOpt = eventService.findById(eventId);
+        if (eventOpt.isEmpty() || !eventOpt.get().isOpen()) {
+            sender.answerCallback(cq.getId(), "Запись на это событие уже закрыта", true);
+            return;
+        }
+        Event event = eventOpt.get();
+        User from = cq.getFrom();
+        Optional<BookingPreset> presetOpt = presetService.findValid(from.getId());
+        if (presetOpt.isEmpty()) {
+            sender.answerCallback(cq.getId(), "Пресет не найден", true);
+            editWizardMessage(cq, manualStartText(event),
+                    KeyboardFactory.durationKeyboard(eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, null));
+            return;
+        }
+        BookingPreset preset = presetOpt.get();
+        BookingResult result = bookingService.book(
+                eventId, from.getId(), UserNames.displayName(from), from.getUserName(),
+                preset.getStartSlot(), preset.getDurationMinutes(), preset.getPartySize());
+        renderBookOutcome(cq, event, result.outcome(), result.booking(),
+                preset.getStartSlot(), preset.getDurationMinutes(), preset.getPartySize(), false, List.of());
+        if (result.outcome() == BookingOutcome.CONFIRMED || result.outcome() == BookingOutcome.WAITLISTED) {
+            eventService.refreshBookingMessage(eventId);
+        }
+    }
+
+    private void handleManual(CallbackQuery cq, CallbackData data) {
+        long eventId = data.argLong(0);
+        Optional<Event> eventOpt = eventService.findById(eventId);
+        if (eventOpt.isEmpty() || !eventOpt.get().isOpen()) {
+            sender.answerCallback(cq.getId(), "Запись на это событие уже закрыта", true);
+            return;
+        }
+        sender.answerCallback(cq.getId(), null);
+        showManualDuration(cq, eventOpt.get(), true);
+    }
+
+    private void handleClearPreset(CallbackQuery cq, CallbackData data) {
+        long eventId = data.argLong(0);
+        presetService.delete(cq.getFrom().getId());
+        Optional<Event> eventOpt = eventService.findById(eventId);
+        if (eventOpt.isEmpty() || !eventOpt.get().isOpen()) {
+            sender.answerCallback(cq.getId(), "Пресет удалён", true);
+            editWizardMessage(cq, "🗑 Пресет удалён.", null);
+            return;
+        }
+        sender.answerCallback(cq.getId(), "Пресет удалён");
+        editWizardMessage(cq, "🗑 Пресет удалён.\n\n" + manualStartText(eventOpt.get()),
+                KeyboardFactory.durationKeyboard(eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, null));
     }
 
     private void handleChange(CallbackQuery cq, CallbackData data) {
@@ -241,10 +341,20 @@ public class BookingWizardHandler {
             booking = result.booking();
         }
 
+        renderBookOutcome(cq, event, outcome, booking, startSlot, duration, partySize, replaceBookingId != null, promoted);
+
+        if (outcome == BookingOutcome.CONFIRMED || outcome == BookingOutcome.WAITLISTED) {
+            eventService.refreshBookingMessage(eventId);
+            notifyPromoted(promoted);
+        }
+    }
+
+    private void renderBookOutcome(CallbackQuery cq, Event event, BookingOutcome outcome, Booking booking,
+                                   int startSlot, int duration, int partySize, boolean editing,
+                                   List<Booking> promotedIgnored) {
         String slotLabel = slotCalculator.formatSlotRange(startSlot, duration);
         String text;
         InlineKeyboardMarkup keyboard = null;
-        boolean editing = replaceBookingId != null;
 
         switch (outcome) {
             case CONFIRMED -> {
@@ -261,6 +371,12 @@ public class BookingWizardHandler {
             }
             case OVERLAPS_OWN_BOOKING -> {
                 text = "⚠️ У вас уже есть запись на пересекающееся время в этом событии.";
+                Optional<BookingPreset> preset = presetService.findValid(cq.getFrom().getId());
+                if (!editing && preset.isPresent()) {
+                    text += "\n\nМожно выбрать другое время вручную:";
+                    keyboard = KeyboardFactory.durationKeyboard(
+                            event.getId(), slotCalculator.durationOptionsMinutes(), slotCalculator, null);
+                }
                 sender.answerCallback(cq.getId(), "У вас уже есть запись на это время");
             }
             case PARTY_TOO_BIG -> {
@@ -278,11 +394,6 @@ public class BookingWizardHandler {
         }
 
         editWizardMessage(cq, text, keyboard);
-
-        if (outcome == BookingOutcome.CONFIRMED || outcome == BookingOutcome.WAITLISTED) {
-            eventService.refreshBookingMessage(eventId);
-            notifyPromoted(promoted);
-        }
     }
 
     private void handleBackToDuration(CallbackQuery cq, CallbackData data) {
@@ -294,8 +405,12 @@ public class BookingWizardHandler {
             return;
         }
         sender.answerCallback(cq.getId(), null);
-        String prefix = replaceBookingId != null ? "✏️ Меняем запись на " : "🏸 Записываемся на ";
-        String text = prefix + eventDateLabel(eventOpt.get()) + "\n\nВыберите длительность:";
+        Event event = eventOpt.get();
+        if (replaceBookingId == null) {
+            editEntryScreen(cq, event, cq.getFrom().getId());
+            return;
+        }
+        String text = "✏️ Меняем запись на " + eventDateLabel(event) + "\n\nВыберите длительность:";
         InlineKeyboardMarkup keyboard = KeyboardFactory.durationKeyboard(
                 eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, replaceBookingId);
         editWizardMessage(cq, text, keyboard);
@@ -398,5 +513,36 @@ public class BookingWizardHandler {
 
     private String eventDateLabel(Event event) {
         return event.getEventDate().toString();
+    }
+
+    private String manualStartText(Event event) {
+        return "🏸 Записываемся на " + eventDateLabel(event) + "\n\nВыберите длительность:";
+    }
+
+    private String presetLabel(BookingPreset preset) {
+        return slotCalculator.formatSlotRange(preset.getStartSlot(), preset.getDurationMinutes())
+                + ", " + preset.getPartySize() + " чел.";
+    }
+
+    private void editEntryScreen(CallbackQuery cq, Event event, Long userId) {
+        Optional<BookingPreset> preset = presetService.findValid(userId);
+        if (preset.isPresent()) {
+            String label = presetLabel(preset.get());
+            String text = "🏸 Записываемся на " + eventDateLabel(event) + "\n\n"
+                    + "Сохранённый вариант: <b>" + label + "</b>\n"
+                    + "Использовать его или выбрать время вручную?";
+            editWizardMessage(cq, text, KeyboardFactory.entryChoiceKeyboard(event.getId(), label));
+            return;
+        }
+        showManualDuration(cq, event, false);
+    }
+
+    private void showManualDuration(CallbackQuery cq, Event event, boolean backToPresetChoice) {
+        InlineKeyboardMarkup keyboard = backToPresetChoice
+                ? KeyboardFactory.durationKeyboardWithBack(
+                        event.getId(), slotCalculator.durationOptionsMinutes(), slotCalculator, true)
+                : KeyboardFactory.durationKeyboard(
+                        event.getId(), slotCalculator.durationOptionsMinutes(), slotCalculator, null);
+        editWizardMessage(cq, manualStartText(event), keyboard);
     }
 }

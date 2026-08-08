@@ -83,6 +83,29 @@ public class KeyboardFactory {
         return builder.build();
     }
 
+    /** На шаге длительности — назад к выбору пресет/вручную (только для новой записи). */
+    public static InlineKeyboardMarkup durationKeyboardWithBack(Long eventId, List<Integer> durationOptions,
+                                                                SlotCalculator calc, boolean backToPresetChoice) {
+        InlineKeyboardMarkup.InlineKeyboardMarkupBuilder builder = InlineKeyboardMarkup.builder();
+        List<InlineKeyboardButton> row = new java.util.ArrayList<>();
+        for (Integer duration : durationOptions) {
+            row.add(button(calc.formatDuration(duration),
+                    CallbackData.build(CallbackAction.DURATION, eventId, duration)));
+            if (row.size() == 3) {
+                builder.keyboardRow(new InlineKeyboardRow(row));
+                row = new java.util.ArrayList<>();
+            }
+        }
+        if (!row.isEmpty()) {
+            builder.keyboardRow(new InlineKeyboardRow(row));
+        }
+        if (backToPresetChoice) {
+            builder.keyboardRow(new InlineKeyboardRow(
+                    button("◀️ Назад", CallbackData.build(CallbackAction.ENTRY, eventId))));
+        }
+        return builder.build();
+    }
+
     public static InlineKeyboardMarkup sizeKeyboard(Long eventId, int durationMinutes, int startSlot, int maxSize,
                                                     Long replaceBookingId) {
         InlineKeyboardMarkup.InlineKeyboardMarkupBuilder builder = InlineKeyboardMarkup.builder();
@@ -106,8 +129,29 @@ public class KeyboardFactory {
     public static InlineKeyboardMarkup bookingActionsKeyboard(Long bookingId) {
         return InlineKeyboardMarkup.builder()
                 .keyboardRow(new InlineKeyboardRow(
+                        button("💾 Сохранить пресет", CallbackData.build(CallbackAction.SAVE_PRESET, bookingId))))
+                .keyboardRow(new InlineKeyboardRow(
                         button("✏️ Изменить", CallbackData.build(CallbackAction.CHANGE, bookingId)),
                         button("❌ Отменить", CallbackData.build(CallbackAction.CANCEL, bookingId))))
+                .build();
+    }
+
+    public static InlineKeyboardMarkup bookingActionsKeyboardAfterPresetSaved(Long bookingId) {
+        return InlineKeyboardMarkup.builder()
+                .keyboardRow(new InlineKeyboardRow(
+                        button("✏️ Изменить", CallbackData.build(CallbackAction.CHANGE, bookingId)),
+                        button("❌ Отменить", CallbackData.build(CallbackAction.CANCEL, bookingId))))
+                .build();
+    }
+
+    public static InlineKeyboardMarkup entryChoiceKeyboard(Long eventId, String presetLabel) {
+        return InlineKeyboardMarkup.builder()
+                .keyboardRow(new InlineKeyboardRow(
+                        button("⚡ " + presetLabel, CallbackData.build(CallbackAction.USE_PRESET, eventId))))
+                .keyboardRow(new InlineKeyboardRow(
+                        button("🕐 Выбрать время", CallbackData.build(CallbackAction.MANUAL, eventId))))
+                .keyboardRow(new InlineKeyboardRow(
+                        button("🗑 Удалить пресет", CallbackData.build(CallbackAction.CLEAR_PRESET, eventId))))
                 .build();
     }
 

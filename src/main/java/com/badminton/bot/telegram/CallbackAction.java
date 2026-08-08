@@ -13,6 +13,16 @@ public enum CallbackAction {
     CANCEL("cn"),
     /** Начать изменение своей записи: args = bookingId */
     CHANGE("ch"),
+    /** Сохранить запись как пресет: args = bookingId */
+    SAVE_PRESET("sp"),
+    /** Записаться по пресету: args = eventId */
+    USE_PRESET("up"),
+    /** Выбрать время вручную: args = eventId */
+    MANUAL("mn"),
+    /** Удалить пресет: args = eventId (чтобы вернуться к выбору) */
+    CLEAR_PRESET("cp"),
+    /** Экран выбора пресет/вручную (редактирование сообщения мастера): args = eventId */
+    ENTRY("en"),
     ADMIN_PUBLISH("ap"),
     ADMIN_CANCEL("ac"),
     ADMIN_CLOSE("ax"),
