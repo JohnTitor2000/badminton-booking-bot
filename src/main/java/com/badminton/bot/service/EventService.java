@@ -104,8 +104,9 @@ public class EventService {
         while (result.size() < limit) {
             if (badmintonProperties.trainingDaysList().contains(cursor.getDayOfWeek())) {
                 Optional<Event> existing = eventRepository.findByEventDate(cursor);
-                boolean cancelled = existing.isPresent() && existing.get().getStatus() == EventStatus.CANCELLED;
-                if (!cancelled) {
+                // не предлагаем дни с уже открытой (активной) публикацией
+                boolean alreadyOpen = existing.isPresent() && existing.get().getStatus() == EventStatus.OPEN;
+                if (!alreadyOpen) {
                     result.add(cursor);
                 }
             }
