@@ -245,20 +245,21 @@ public class CommandDispatcher {
             if (bookings.isEmpty()) {
                 return "На " + date.format(DATE_FORMAT) + " пока никто не записался.";
             }
-            var skills = playerSkillService.skillsBefore(
-                    bookings.stream().map(Booking::getTelegramUserId).toList(),
-                    event.getEventDate());
+            List<Long> userIds = bookings.stream().map(Booking::getTelegramUserId).toList();
+            var minutes = playerSkillService.minutesPlayedBefore(userIds, event.getEventDate());
+            var skills = playerSkillService.skillsBefore(userIds, event.getEventDate());
             StringBuilder sb = new StringBuilder("👥 <b>Записи на " + date.format(DATE_FORMAT) + ":</b>\n\n");
             for (Booking b : bookings) {
+                long mins = minutes.getOrDefault(b.getTelegramUserId(), 0L);
                 double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
                 sb.append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
                         .append(" — ").append(b.getDisplayName())
                         .append(b.getUsername() != null ? " (@" + b.getUsername() + ")" : "")
-                        .append(" ·").append(SlotSkillModel.formatSkill(skill))
-                        .append(", ").append(b.getPartySize()).append(" чел., ")
-                        .append(statusLabel(b.getStatus())).append("\n");
+                        .append("\n   ").append(b.getPartySize()).append(" чел. · ")
+                        .append(SlotSkillModel.formatPlayerStats(mins, skill))
+                        .append(" · ").append(statusLabel(b.getStatus())).append("\n");
             }
-            sb.append("\n<code>·N</code> — скилл игрока 0–10 по наигранным часам");
+            sb.append("\n⏱ наиграно до этого дня · скилл 0–10");
             return sb.toString();
         }).orElse("Событие на " + date.format(DATE_FORMAT) + " не найдено.");
     }

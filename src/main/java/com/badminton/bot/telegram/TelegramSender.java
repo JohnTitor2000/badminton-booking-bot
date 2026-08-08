@@ -44,7 +44,8 @@ public class TelegramSender {
         SendMessage.SendMessageBuilder<?, ?> builder = SendMessage.builder()
                 .chatId(chatId)
                 .text(text)
-                .parseMode(ParseMode.HTML);
+                .parseMode(ParseMode.HTML)
+                .disableWebPagePreview(true);
         if (replyToMessageId != null) {
             builder.replyToMessageId(replyToMessageId);
         }
@@ -167,7 +168,8 @@ public class TelegramSender {
                     .chatId(chatId)
                     .messageId(messageId)
                     .text(text)
-                    .parseMode(ParseMode.HTML);
+                    .parseMode(ParseMode.HTML)
+                    .disableWebPagePreview(true);
             if (keyboard != null) {
                 builder.replyMarkup(keyboard);
             }

@@ -105,9 +105,9 @@ public class TableRenderService {
     /** Список записанных для лички (по кнопке с поста). */
     public String renderPlayersList(Event event, List<Booking> bookings) {
         String dateStr = event.getEventDate().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"));
-        Map<Long, Double> skills = playerSkillService.skillsBefore(
-                bookings.stream().map(Booking::getTelegramUserId).distinct().toList(),
-                event.getEventDate());
+        List<Long> userIds = bookings.stream().map(Booking::getTelegramUserId).distinct().toList();
+        Map<Long, Long> minutes = playerSkillService.minutesPlayedBefore(userIds, event.getEventDate());
+        Map<Long, Double> skills = playerSkillService.skillsBefore(userIds, event.getEventDate());
 
         List<Booking> confirmed = bookings.stream()
                 .filter(b -> b.getStatus() == BookingStatus.CONFIRMED)
@@ -124,24 +124,26 @@ public class TableRenderService {
             sb.append("Пока никто не записан.\n");
         } else {
             for (Booking b : confirmed) {
-                double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
-                sb.append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
-                        .append(" — ").append(nameOf(b))
-                        .append(" ·").append(SlotSkillModel.formatSkill(skill))
-                        .append(", ").append(b.getPartySize()).append(" чел.\n");
+                sb.append(formatPlayerLine(b, minutes, skills)).append('\n');
             }
         }
         if (!waitlisted.isEmpty()) {
             sb.append("\n⏳ <b>Лист ожидания:</b>\n");
             for (Booking b : waitlisted) {
-                double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
-                sb.append("• ").append(nameOf(b))
-                        .append(" ·").append(SlotSkillModel.formatSkill(skill))
-                        .append(" (").append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
-                        .append(", ").append(b.getPartySize()).append(" чел.)\n");
+                sb.append("• ").append(formatPlayerLine(b, minutes, skills)).append('\n');
             }
         }
+        sb.append("\n⏱ наиграно до этого дня · скилл 0–10");
         return sb.toString().trim();
+    }
+
+    private String formatPlayerLine(Booking b, Map<Long, Long> minutes, Map<Long, Double> skills) {
+        long mins = minutes.getOrDefault(b.getTelegramUserId(), 0L);
+        double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
+        return slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes())
+                + " — " + nameOf(b)
+                + "\n   " + b.getPartySize() + " чел. · "
+                + SlotSkillModel.formatPlayerStats(mins, skill);
     }
 
     private List<Booking> confirmedOnSlot(List<Booking> bookings, int slot) {

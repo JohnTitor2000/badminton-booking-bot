@@ -58,6 +58,20 @@ public final class SlotSkillModel {
         return String.format(Locale.US, "%.1f", clamp(skill));
     }
 
+    public static String formatHours(long minutesPlayed) {
+        double hours = Math.max(0, minutesPlayed) / 60.0;
+        if (hours < 10) {
+            return String.format(Locale.US, "%.1fч", hours);
+        }
+        return String.format(Locale.US, "%.0fч", hours);
+    }
+
+    /** Например: «3.5ч, скилл 2.6 (начинающие)». */
+    public static String formatPlayerStats(long minutesPlayed, double skill) {
+        return formatHours(minutesPlayed) + ", скилл " + formatSkill(skill)
+                + " (" + bandLabel(skill) + ")";
+    }
+
     public static String bandLabel(double skill) {
         double s = clamp(skill);
         if (s < 2.0) {
