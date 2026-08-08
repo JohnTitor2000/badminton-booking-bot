@@ -164,21 +164,26 @@ public class TelegramSender {
 
     public boolean editText(Long chatId, Integer messageId, String text, InlineKeyboardMarkup keyboard) {
         try {
+            // replyMarkup всегда задаём: иначе Telegram может оставить старые/пустые кнопки
+            InlineKeyboardMarkup markup = keyboard != null
+                    ? keyboard
+                    : InlineKeyboardMarkup.builder().build();
             EditMessageText.EditMessageTextBuilder<?, ?> builder = EditMessageText.builder()
                     .chatId(chatId)
                     .messageId(messageId)
                     .text(text)
                     .parseMode(ParseMode.HTML)
-                    .disableWebPagePreview(true);
-            if (keyboard != null) {
-                builder.replyMarkup(keyboard);
-            }
+                    .disableWebPagePreview(true)
+                    .replyMarkup(markup);
             telegramClient.execute(builder.build());
             panelStore.put(chatId, messageId);
             return true;
         } catch (TelegramApiException e) {
             String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
             if (msg.contains("message is not modified")) {
+                if (keyboard != null) {
+                    tryEditReplyMarkup(chatId, messageId, keyboard);
+                }
                 panelStore.put(chatId, messageId);
                 return true;
             }
@@ -189,7 +194,7 @@ public class TelegramSender {
 
     /**
      * Один экран в личке: правит сохранённое сообщение или создаёт новое.
-     * {@code menuIfNew} — reply-клавиатура только при создании (потом остаётся в чате).
+     * Inline-кнопки под сообщением важнее reply-меню (меню и так остаётся внизу чата).
      */
     public boolean showPanel(Long userId, String text, InlineKeyboardMarkup inline, ReplyKeyboard menuIfNew) {
         Integer messageId = panelStore.get(userId);
@@ -200,15 +205,19 @@ public class TelegramSender {
             panelStore.clear(userId);
         }
 
-        ReplyKeyboard firstMarkup = menuIfNew != null ? menuIfNew : inline;
+        // Сразу шлём с inline — иначе кнопки под текстом пропадают
+        ReplyKeyboard firstMarkup = inline != null ? inline : menuIfNew;
         Optional<Message> sent = send(userId, text, firstMarkup);
         if (sent.isEmpty()) {
             return false;
         }
         Integer newId = sent.get().getMessageId();
         panelStore.put(userId, newId);
+
+        // Reply-меню снизу: короткое служебное сообщение + удаление, не трогая панель
         if (menuIfNew != null && inline != null) {
-            editText(userId, newId, text, inline);
+            send(userId, "\u2060", menuIfNew).ifPresent(menuMsg ->
+                    deleteMessage(userId, menuMsg.getMessageId()));
         }
         return true;
     }
