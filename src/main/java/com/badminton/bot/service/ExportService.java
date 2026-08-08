@@ -14,14 +14,19 @@ import java.util.List;
 public class ExportService {
 
     private final SlotCalculator slotCalculator;
+    private final PlayerVisitService playerVisitService;
 
-    public ExportService(SlotCalculator slotCalculator) {
+    public ExportService(SlotCalculator slotCalculator, PlayerVisitService playerVisitService) {
         this.slotCalculator = slotCalculator;
+        this.playerVisitService = playerVisitService;
     }
 
     public byte[] toCsv(Event event, List<Booking> bookings) {
+        var visits = playerVisitService.visitCountsBefore(
+                bookings.stream().map(Booking::getTelegramUserId).toList(),
+                event.getEventDate());
         StringBuilder sb = new StringBuilder();
-        sb.append("Дата;Слот;Имя;Username;TelegramId;Человек;Статус;Создано\n");
+        sb.append("Дата;Слот;Имя;Username;TelegramId;Находов;Человек;Статус;Создано\n");
         String dateStr = event.getEventDate().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"));
 
         bookings.stream()
@@ -31,6 +36,7 @@ public class ExportService {
                         .append(csv(b.getDisplayName())).append(';')
                         .append(csv(b.getUsername())).append(';')
                         .append(b.getTelegramUserId()).append(';')
+                        .append(visits.getOrDefault(b.getTelegramUserId(), 0)).append(';')
                         .append(b.getPartySize()).append(';')
                         .append(b.getStatus()).append(';')
                         .append(b.getCreatedAt()).append('\n'));

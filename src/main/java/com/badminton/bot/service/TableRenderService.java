@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Рендерит таблицу загрузки события в текст, который бот показывает и обновляет
@@ -23,10 +24,14 @@ public class TableRenderService {
 
     private final SlotCalculator slotCalculator;
     private final BadmintonProperties properties;
+    private final PlayerVisitService playerVisitService;
 
-    public TableRenderService(SlotCalculator slotCalculator, BadmintonProperties properties) {
+    public TableRenderService(SlotCalculator slotCalculator,
+                               BadmintonProperties properties,
+                               PlayerVisitService playerVisitService) {
         this.slotCalculator = slotCalculator;
         this.properties = properties;
+        this.playerVisitService = playerVisitService;
     }
 
     public String render(Event event, List<Booking> bookings) {
@@ -44,9 +49,14 @@ public class TableRenderService {
 
     /** Только сетка слотов и лист ожидания — для подписи к картинке анонса. */
     public String renderSlotsOnly(Event event, List<Booking> bookings) {
+        Map<Long, Integer> visits = playerVisitService.visitCountsBefore(
+                bookings.stream().map(Booking::getTelegramUserId).distinct().toList(),
+                event.getEventDate());
+
         StringBuilder sb = new StringBuilder();
         int total = slotCalculator.totalSlots();
         int[] remaining = slotCalculator.remainingCapacityPerSlot(bookings);
+        boolean anyNamed = false;
 
         for (int slot = 0; slot < total; slot++) {
             String range = slotCalculator.formatSlotRange(slot, properties.slotStepMinutes());
@@ -54,11 +64,20 @@ public class TableRenderService {
             sb.append("<b>").append(range).append("</b> [").append(used).append("/")
                     .append(properties.slotCapacity()).append("]");
 
-            List<String> names = confirmedNamesForSlot(bookings, slot);
-            if (names.isEmpty()) {
+            List<Booking> onSlot = confirmedOnSlot(bookings, slot);
+            if (onSlot.isEmpty()) {
                 sb.append(" — свободно\n");
             } else {
-                sb.append(": ").append(String.join(", ", names)).append("\n");
+                anyNamed = true;
+                int levelSum = onSlot.stream()
+                        .mapToInt(b -> visits.getOrDefault(b.getTelegramUserId(), 0))
+                        .sum();
+                sb.append(" Σ").append(levelSum).append(": ");
+                List<String> names = new ArrayList<>();
+                for (Booking b : onSlot) {
+                    names.add(nameOf(b, visits.getOrDefault(b.getTelegramUserId(), 0)));
+                }
+                sb.append(String.join(", ", names)).append("\n");
             }
         }
 
@@ -70,10 +89,15 @@ public class TableRenderService {
         if (!waitlisted.isEmpty()) {
             sb.append("\n⏳ <b>Лист ожидания:</b>\n");
             for (Booking b : waitlisted) {
-                sb.append("• ").append(nameOf(b))
+                int v = visits.getOrDefault(b.getTelegramUserId(), 0);
+                sb.append("• ").append(nameOf(b, v))
                         .append(" (").append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
                         .append(", ").append(b.getPartySize()).append(" чел.)\n");
             }
+        }
+
+        if (anyNamed || !waitlisted.isEmpty()) {
+            sb.append("\n<code>·N</code> — сколько раз уже был(а), <code>Σ</code> — сумма на слоте");
         }
 
         if (event.isOpen()) {
@@ -83,23 +107,24 @@ public class TableRenderService {
         return sb.toString().trim();
     }
 
-    private List<String> confirmedNamesForSlot(List<Booking> bookings, int slot) {
-        List<String> names = new ArrayList<>();
+    private List<Booking> confirmedOnSlot(List<Booking> bookings, int slot) {
+        List<Booking> onSlot = new ArrayList<>();
         for (Booking b : bookings) {
             if (b.getStatus() != BookingStatus.CONFIRMED) {
                 continue;
             }
             int end = b.endSlotExclusive(properties.slotStepMinutes());
             if (slot >= b.getStartSlot() && slot < end) {
-                names.add(nameOf(b));
+                onSlot.add(b);
             }
         }
-        return names;
+        return onSlot;
     }
 
-    private String nameOf(Booking b) {
+    private String nameOf(Booking b, int visits) {
         String linked = UserNames.mention(b.getDisplayName(), b.getTelegramUserId(), b.getUsername());
-        return b.getPartySize() > 1 ? linked + " +" + (b.getPartySize() - 1) : linked;
+        String withVisits = linked + "·" + visits;
+        return b.getPartySize() > 1 ? withVisits + " +" + (b.getPartySize() - 1) : withVisits;
     }
 
     private String capitalize(String s) {
