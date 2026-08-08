@@ -4,6 +4,7 @@ import com.badminton.bot.config.BadmintonProperties;
 import com.badminton.bot.config.TelegramProperties;
 import com.badminton.bot.domain.Booking;
 import com.badminton.bot.domain.Event;
+import com.badminton.bot.service.BookingChangeResult;
 import com.badminton.bot.service.BookingOutcome;
 import com.badminton.bot.service.BookingResult;
 import com.badminton.bot.service.BookingService;
@@ -74,6 +75,7 @@ public class BookingWizardHandler {
             }
             switch (data.action()) {
                 case START -> handleStart(callbackQuery, data);
+                case CHANGE -> handleChange(callbackQuery, data);
                 case DURATION -> handleDuration(callbackQuery, data);
                 case SLOT -> handleSlot(callbackQuery, data);
                 case CONFIRM -> handleConfirm(callbackQuery, data);
@@ -101,7 +103,7 @@ public class BookingWizardHandler {
 
         String text = "🏸 Записываемся на " + eventDateLabel(event) + "\n\nВыберите длительность:";
         InlineKeyboardMarkup keyboard = KeyboardFactory.durationKeyboard(
-                eventId, slotCalculator.durationOptionsMinutes(), slotCalculator);
+                eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, null);
 
         boolean sent = sender.sendPrivate(userId, text, keyboard);
         if (!sent) {
@@ -116,22 +118,63 @@ public class BookingWizardHandler {
         sender.answerCallback(cq.getId(), "Продолжите запись в личке с ботом");
     }
 
+    private void handleChange(CallbackQuery cq, CallbackData data) {
+        long bookingId = data.argLong(0);
+        Optional<Booking> bookingOpt = bookingService.findById(bookingId);
+        if (bookingOpt.isEmpty() || !bookingOpt.get().isActive()) {
+            sender.answerCallback(cq.getId(), "Запись не найдена", true);
+            return;
+        }
+        Booking booking = bookingOpt.get();
+        if (!booking.getTelegramUserId().equals(cq.getFrom().getId())
+                && !telegramProperties.isAdmin(cq.getFrom().getId())) {
+            sender.answerCallback(cq.getId(), "Это не ваша запись", true);
+            return;
+        }
+        Event event = booking.getEvent();
+        if (!event.isOpen()) {
+            sender.answerCallback(cq.getId(), "Запись на это событие уже закрыта", true);
+            return;
+        }
+
+        String text = "✏️ Меняем запись на " + eventDateLabel(event) + "\n"
+                + "Сейчас: " + slotCalculator.formatSlotRange(booking.getStartSlot(), booking.getDurationMinutes())
+                + ", " + booking.getPartySize() + " чел.\n\nВыберите новую длительность:";
+        InlineKeyboardMarkup keyboard = KeyboardFactory.durationKeyboard(
+                event.getId(), slotCalculator.durationOptionsMinutes(), slotCalculator, bookingId);
+
+        // из «Мои записи» редактируем то же сообщение; иначе шлём в личку
+        if (cq.getMessage() != null && cq.getMessage().isUserMessage()) {
+            sender.answerCallback(cq.getId(), null);
+            editWizardMessage(cq, text, keyboard);
+        } else {
+            boolean sent = sender.sendPrivate(cq.getFrom().getId(), text, keyboard);
+            if (!sent) {
+                sender.answerCallback(cq.getId(), "Сначала напишите боту /start в личку", true);
+                return;
+            }
+            sender.answerCallback(cq.getId(), "Продолжите в личке с ботом");
+        }
+    }
+
     private void handleDuration(CallbackQuery cq, CallbackData data) {
         long eventId = data.argLong(0);
         int duration = data.argInt(1);
+        Long replaceBookingId = data.optionalArgLong(2);
         Optional<Event> eventOpt = eventService.findById(eventId);
         if (eventOpt.isEmpty() || !eventOpt.get().isOpen()) {
             sender.answerCallback(cq.getId(), "Запись на это событие уже закрыта");
             return;
         }
         sender.answerCallback(cq.getId(), null);
-        renderSlotMenu(cq, eventOpt.get(), duration);
+        renderSlotMenu(cq, eventOpt.get(), duration, replaceBookingId);
     }
 
     private void handleSlot(CallbackQuery cq, CallbackData data) {
         long eventId = data.argLong(0);
         int duration = data.argInt(1);
         int startSlot = data.argInt(2);
+        Long replaceBookingId = data.optionalArgLong(3);
         Optional<Event> eventOpt = eventService.findById(eventId);
         if (eventOpt.isEmpty() || !eventOpt.get().isOpen()) {
             sender.answerCallback(cq.getId(), "Запись на это событие уже закрыта");
@@ -141,7 +184,8 @@ public class BookingWizardHandler {
 
         String text = "🏸 " + eventDateLabel(eventOpt.get()) + "\nВремя: " + slotCalculator.formatSlotRange(startSlot, duration)
                 + "\n\nСколько человек (включая вас)?";
-        InlineKeyboardMarkup keyboard = KeyboardFactory.sizeKeyboard(eventId, duration, startSlot, badmintonProperties.slotCapacity());
+        InlineKeyboardMarkup keyboard = KeyboardFactory.sizeKeyboard(
+                eventId, duration, startSlot, badmintonProperties.slotCapacity(), replaceBookingId);
         editWizardMessage(cq, text, keyboard);
     }
 
@@ -150,6 +194,7 @@ public class BookingWizardHandler {
         int duration = data.argInt(1);
         int startSlot = data.argInt(2);
         int partySize = data.argInt(3);
+        Long replaceBookingId = data.optionalArgLong(4);
 
         Optional<Event> eventOpt = eventService.findById(eventId);
         if (eventOpt.isEmpty()) {
@@ -160,23 +205,48 @@ public class BookingWizardHandler {
         User from = cq.getFrom();
         String displayName = UserNames.displayName(from);
 
-        BookingResult result = bookingService.book(eventId, from.getId(), displayName, from.getUserName(),
-                startSlot, duration, partySize);
+        BookingOutcome outcome;
+        Booking booking;
+        List<Booking> promoted = List.of();
+
+        if (replaceBookingId != null) {
+            try {
+                BookingChangeResult changed = bookingService.change(
+                        replaceBookingId, from.getId(), displayName, from.getUserName(),
+                        startSlot, duration, partySize);
+                outcome = changed.outcome();
+                booking = changed.booking();
+                promoted = changed.promoted();
+            } catch (SecurityException e) {
+                sender.answerCallback(cq.getId(), "Это не ваша запись", true);
+                return;
+            } catch (IllegalArgumentException e) {
+                sender.answerCallback(cq.getId(), "Запись не найдена", true);
+                return;
+            }
+        } else {
+            BookingResult result = bookingService.book(eventId, from.getId(), displayName, from.getUserName(),
+                    startSlot, duration, partySize);
+            outcome = result.outcome();
+            booking = result.booking();
+        }
 
         String slotLabel = slotCalculator.formatSlotRange(startSlot, duration);
         String text;
         InlineKeyboardMarkup keyboard = null;
+        boolean editing = replaceBookingId != null;
 
-        switch (result.outcome()) {
+        switch (outcome) {
             case CONFIRMED -> {
-                text = "✅ Записал(а) вас на " + slotLabel + " (" + partySize + " чел.)\n" + eventDateLabel(event);
-                keyboard = KeyboardFactory.cancelKeyboard(result.booking().getId());
-                sender.answerCallback(cq.getId(), "Подтверждено!");
+                text = (editing ? "✅ Запись изменена: " : "✅ Записал(а) вас на ")
+                        + slotLabel + " (" + partySize + " чел.)\n" + eventDateLabel(event);
+                keyboard = KeyboardFactory.bookingActionsKeyboard(booking.getId());
+                sender.answerCallback(cq.getId(), editing ? "Изменено!" : "Подтверждено!");
             }
             case WAITLISTED -> {
                 text = "⏳ Свободных мест уже нет, вы в листе ожидания на " + slotLabel + " (" + partySize + " чел.)\n"
                         + eventDateLabel(event) + "\nМы напишем, если освободится место.";
-                keyboard = KeyboardFactory.cancelKeyboard(result.booking().getId());
+                keyboard = KeyboardFactory.bookingActionsKeyboard(booking.getId());
                 sender.answerCallback(cq.getId(), "В листе ожидания");
             }
             case OVERLAPS_OWN_BOOKING -> {
@@ -199,34 +269,39 @@ public class BookingWizardHandler {
 
         editWizardMessage(cq, text, keyboard);
 
-        if (result.outcome() == BookingOutcome.CONFIRMED || result.outcome() == BookingOutcome.WAITLISTED) {
+        if (outcome == BookingOutcome.CONFIRMED || outcome == BookingOutcome.WAITLISTED) {
             eventService.refreshBookingMessage(eventId);
+            notifyPromoted(promoted);
         }
     }
 
     private void handleBackToDuration(CallbackQuery cq, CallbackData data) {
         long eventId = data.argLong(0);
+        Long replaceBookingId = data.optionalArgLong(1);
         Optional<Event> eventOpt = eventService.findById(eventId);
         if (eventOpt.isEmpty()) {
             sender.answerCallback(cq.getId(), "Событие не найдено");
             return;
         }
         sender.answerCallback(cq.getId(), null);
-        String text = "🏸 Записываемся на " + eventDateLabel(eventOpt.get()) + "\n\nВыберите длительность:";
-        InlineKeyboardMarkup keyboard = KeyboardFactory.durationKeyboard(eventId, slotCalculator.durationOptionsMinutes(), slotCalculator);
+        String prefix = replaceBookingId != null ? "✏️ Меняем запись на " : "🏸 Записываемся на ";
+        String text = prefix + eventDateLabel(eventOpt.get()) + "\n\nВыберите длительность:";
+        InlineKeyboardMarkup keyboard = KeyboardFactory.durationKeyboard(
+                eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, replaceBookingId);
         editWizardMessage(cq, text, keyboard);
     }
 
     private void handleBackToSlot(CallbackQuery cq, CallbackData data) {
         long eventId = data.argLong(0);
         int duration = data.argInt(1);
+        Long replaceBookingId = data.optionalArgLong(2);
         Optional<Event> eventOpt = eventService.findById(eventId);
         if (eventOpt.isEmpty()) {
             sender.answerCallback(cq.getId(), "Событие не найдено");
             return;
         }
         sender.answerCallback(cq.getId(), null);
-        renderSlotMenu(cq, eventOpt.get(), duration);
+        renderSlotMenu(cq, eventOpt.get(), duration, replaceBookingId);
     }
 
     private void handleCancel(CallbackQuery cq, CallbackData data) {
@@ -280,13 +355,15 @@ public class BookingWizardHandler {
             String text = "✅ Для вас нашлось место! Ваша запись на "
                     + slotCalculator.formatSlotRange(booking.getStartSlot(), booking.getDurationMinutes())
                     + " теперь подтверждена.";
-            InlineKeyboardMarkup keyboard = KeyboardFactory.cancelKeyboard(booking.getId());
+            InlineKeyboardMarkup keyboard = KeyboardFactory.bookingActionsKeyboard(booking.getId());
             sender.sendPrivate(booking.getTelegramUserId(), text, keyboard);
         }
     }
 
-    private void renderSlotMenu(CallbackQuery cq, Event event, int duration) {
-        List<Booking> active = bookingService.activeBookings(event.getId());
+    private void renderSlotMenu(CallbackQuery cq, Event event, int duration, Long replaceBookingId) {
+        List<Booking> active = bookingService.activeBookings(event.getId()).stream()
+                .filter(b -> replaceBookingId == null || !b.getId().equals(replaceBookingId))
+                .toList();
         int[] remaining = slotCalculator.remainingCapacityPerSlot(active);
 
         List<KeyboardFactory.SlotOption> options = new ArrayList<>();
@@ -299,7 +376,7 @@ public class BookingWizardHandler {
 
         String text = "🏸 " + eventDateLabel(event) + "\nДлительность: " + slotCalculator.formatDuration(duration)
                 + "\n\nВыберите время начала:";
-        InlineKeyboardMarkup keyboard = KeyboardFactory.slotKeyboard(event.getId(), duration, options);
+        InlineKeyboardMarkup keyboard = KeyboardFactory.slotKeyboard(event.getId(), duration, options, replaceBookingId);
         editWizardMessage(cq, text, keyboard);
     }
 

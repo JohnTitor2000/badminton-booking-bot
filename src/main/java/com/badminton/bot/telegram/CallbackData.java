@@ -29,4 +29,13 @@ public record CallbackData(CallbackAction action, String[] args) {
     public int argInt(int index) {
         return Integer.parseInt(args[index]);
     }
+
+    public boolean hasArg(int index) {
+        return args != null && args.length > index;
+    }
+
+    /** Опциональный аргумент (например, bookingId при изменении записи). */
+    public Long optionalArgLong(int index) {
+        return hasArg(index) ? Long.parseLong(args[index]) : null;
+    }
 }

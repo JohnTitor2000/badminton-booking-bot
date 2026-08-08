@@ -95,6 +95,67 @@ public class BookingService {
     }
 
     /**
+     * Меняет свою активную запись (время / длительность / число человек) атомарно:
+     * старая бронь освобождает места для расчёта вместимости новой.
+     */
+    @Transactional
+    public BookingChangeResult change(Long bookingId, Long telegramUserId, String displayName, String username,
+                                      int startSlot, int durationMinutes, int partySize) {
+        Booking existing = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new IllegalArgumentException("Запись не найдена: " + bookingId));
+
+        if (!existing.getTelegramUserId().equals(telegramUserId)) {
+            throw new SecurityException("Нельзя изменить чужую запись");
+        }
+        if (!existing.isActive()) {
+            return BookingChangeResult.error(BookingOutcome.EVENT_NOT_OPEN);
+        }
+
+        Long eventId = existing.getEvent().getId();
+        Event event = eventRepository.findByIdForUpdate(eventId)
+                .orElseThrow(() -> new IllegalArgumentException("Событие не найдено: " + eventId));
+
+        if (!event.isOpen()) {
+            return BookingChangeResult.error(BookingOutcome.EVENT_NOT_OPEN);
+        }
+        if (partySize > properties.slotCapacity()) {
+            return BookingChangeResult.error(BookingOutcome.PARTY_TOO_BIG);
+        }
+
+        List<Booking> others = activeBookings(eventId).stream()
+                .filter(b -> !b.getId().equals(bookingId))
+                .toList();
+
+        boolean overlapsOwn = others.stream()
+                .filter(b -> b.getTelegramUserId().equals(telegramUserId))
+                .anyMatch(b -> slotCalculator.overlaps(b.getStartSlot(), b.getDurationMinutes(), startSlot, durationMinutes));
+        if (overlapsOwn) {
+            return BookingChangeResult.error(BookingOutcome.OVERLAPS_OWN_BOOKING);
+        }
+
+        int[] remaining = slotCalculator.remainingCapacityPerSlot(others);
+        boolean fits = slotCalculator.fitsCapacity(remaining, startSlot, durationMinutes, partySize);
+
+        existing.setDisplayName(displayName);
+        existing.setUsername(username);
+        existing.setStartSlot(startSlot);
+        existing.setDurationMinutes(durationMinutes);
+        existing.setPartySize(partySize);
+        existing.setStatus(fits ? BookingStatus.CONFIRMED : BookingStatus.WAITLISTED);
+        existing = bookingRepository.save(existing);
+
+        List<Booking> promoted = promoteWaitlist(eventId);
+
+        log.info("Booking {} changed event={} user={} slot={} duration={} size={} -> {}",
+                existing.getId(), eventId, telegramUserId, startSlot, durationMinutes, partySize, existing.getStatus());
+
+        return new BookingChangeResult(
+                fits ? BookingOutcome.CONFIRMED : BookingOutcome.WAITLISTED,
+                existing,
+                promoted);
+    }
+
+    /**
      * Отменяет запись и пытается продвинуть из листа ожидания те записи, которым теперь хватает места.
      *
      * @return список записей, которые были продвинуты в CONFIRMED (нужно уведомить этих пользователей).
@@ -146,7 +207,11 @@ public class BookingService {
         return promoted;
     }
 
+    @Transactional(readOnly = true)
     public Optional<Booking> findById(Long bookingId) {
-        return bookingRepository.findById(bookingId);
+        Optional<Booking> booking = bookingRepository.findById(bookingId);
+        // подгружаем event при open-in-view=false
+        booking.ifPresent(b -> b.getEvent().getEventDate());
+        return booking;
     }
 }

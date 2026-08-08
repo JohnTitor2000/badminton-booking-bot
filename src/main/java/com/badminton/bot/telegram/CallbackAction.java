@@ -11,6 +11,8 @@ public enum CallbackAction {
     BACK_DURATION("bd"),
     BACK_SLOT("bs"),
     CANCEL("cn"),
+    /** Начать изменение своей записи: args = bookingId */
+    CHANGE("ch"),
     ADMIN_PUBLISH("ap"),
     ADMIN_CANCEL("ac"),
     ADMIN_CLOSE("ax"),

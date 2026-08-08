@@ -153,7 +153,7 @@ public class CommandDispatcher {
                 + "2. Нажмите «Записаться»\n"
                 + "3. В личке выберите длительность, время и число человек\n"
                 + "4. Если мест нет — попадёте в лист ожидания\n\n"
-                + "Отменить запись можно здесь кнопкой «Мои записи».",
+                + "Изменить или отменить запись — кнопка «Мои записи».",
                 KeyboardFactory.mainMenu(admin));
     }
 
@@ -174,7 +174,7 @@ public class CommandDispatcher {
             sender.send(chatId, "📋 Пока нет активных записей.", null);
             return;
         }
-        sb.append("\nНажмите кнопку ниже, чтобы отменить запись:");
+        sb.append("\n✏️ изменить · ❌ отменить");
         sender.send(chatId, sb.toString(), KeyboardFactory.myBookingsKeyboard(buttons, slotCalculator));
     }
 

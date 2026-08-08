@@ -39,11 +39,13 @@ public class KeyboardFactory {
                 .build();
     }
 
-    public static InlineKeyboardMarkup durationKeyboard(Long eventId, List<Integer> durationOptions, SlotCalculator calc) {
+    public static InlineKeyboardMarkup durationKeyboard(Long eventId, List<Integer> durationOptions, SlotCalculator calc,
+                                                        Long replaceBookingId) {
         InlineKeyboardMarkup.InlineKeyboardMarkupBuilder builder = InlineKeyboardMarkup.builder();
         List<InlineKeyboardButton> row = new java.util.ArrayList<>();
         for (Integer duration : durationOptions) {
-            row.add(button(calc.formatDuration(duration), CallbackData.build(CallbackAction.DURATION, eventId, duration)));
+            row.add(button(calc.formatDuration(duration),
+                    cb(CallbackAction.DURATION, replaceBookingId, eventId, duration)));
             if (row.size() == 3) {
                 builder.keyboardRow(new InlineKeyboardRow(row));
                 row = new java.util.ArrayList<>();
@@ -55,22 +57,25 @@ public class KeyboardFactory {
         return builder.build();
     }
 
-    public static InlineKeyboardMarkup slotKeyboard(Long eventId, int durationMinutes, List<SlotOption> options) {
+    public static InlineKeyboardMarkup slotKeyboard(Long eventId, int durationMinutes, List<SlotOption> options,
+                                                    Long replaceBookingId) {
         InlineKeyboardMarkup.InlineKeyboardMarkupBuilder builder = InlineKeyboardMarkup.builder();
         for (SlotOption option : options) {
             builder.keyboardRow(new InlineKeyboardRow(button(option.label(),
-                    CallbackData.build(CallbackAction.SLOT, eventId, durationMinutes, option.startSlot()))));
+                    cb(CallbackAction.SLOT, replaceBookingId, eventId, durationMinutes, option.startSlot()))));
         }
-        builder.keyboardRow(new InlineKeyboardRow(button("◀️ Назад", CallbackData.build(CallbackAction.BACK_DURATION, eventId))));
+        builder.keyboardRow(new InlineKeyboardRow(button("◀️ Назад",
+                cb(CallbackAction.BACK_DURATION, replaceBookingId, eventId))));
         return builder.build();
     }
 
-    public static InlineKeyboardMarkup sizeKeyboard(Long eventId, int durationMinutes, int startSlot, int maxSize) {
+    public static InlineKeyboardMarkup sizeKeyboard(Long eventId, int durationMinutes, int startSlot, int maxSize,
+                                                    Long replaceBookingId) {
         InlineKeyboardMarkup.InlineKeyboardMarkupBuilder builder = InlineKeyboardMarkup.builder();
         List<InlineKeyboardButton> row = new java.util.ArrayList<>();
         for (int size = 1; size <= maxSize; size++) {
             row.add(button(String.valueOf(size),
-                    CallbackData.build(CallbackAction.CONFIRM, eventId, durationMinutes, startSlot, size)));
+                    cb(CallbackAction.CONFIRM, replaceBookingId, eventId, durationMinutes, startSlot, size)));
             if (row.size() == 4) {
                 builder.keyboardRow(new InlineKeyboardRow(row));
                 row = new java.util.ArrayList<>();
@@ -79,26 +84,45 @@ public class KeyboardFactory {
         if (!row.isEmpty()) {
             builder.keyboardRow(new InlineKeyboardRow(row));
         }
-        builder.keyboardRow(new InlineKeyboardRow(button("◀️ Назад", CallbackData.build(CallbackAction.BACK_SLOT, eventId, durationMinutes))));
+        builder.keyboardRow(new InlineKeyboardRow(button("◀️ Назад",
+                cb(CallbackAction.BACK_SLOT, replaceBookingId, eventId, durationMinutes))));
         return builder.build();
     }
 
-    public static InlineKeyboardMarkup cancelKeyboard(Long bookingId) {
+    public static InlineKeyboardMarkup bookingActionsKeyboard(Long bookingId) {
         return InlineKeyboardMarkup.builder()
-                .keyboardRow(new InlineKeyboardRow(button("❌ Отменить запись", CallbackData.build(CallbackAction.CANCEL, bookingId))))
+                .keyboardRow(new InlineKeyboardRow(
+                        button("✏️ Изменить", CallbackData.build(CallbackAction.CHANGE, bookingId)),
+                        button("❌ Отменить", CallbackData.build(CallbackAction.CANCEL, bookingId))))
                 .build();
+    }
+
+    /** @deprecated используйте {@link #bookingActionsKeyboard} */
+    public static InlineKeyboardMarkup cancelKeyboard(Long bookingId) {
+        return bookingActionsKeyboard(bookingId);
     }
 
     public static InlineKeyboardMarkup myBookingsKeyboard(List<BookingButton> bookings, SlotCalculator calc) {
         InlineKeyboardMarkup.InlineKeyboardMarkupBuilder builder = InlineKeyboardMarkup.builder();
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd.MM");
         for (BookingButton item : bookings) {
-            String label = "❌ " + item.event().getEventDate().format(fmt) + " "
+            String when = item.event().getEventDate().format(fmt) + " "
                     + calc.formatSlotRange(item.booking().getStartSlot(), item.booking().getDurationMinutes());
             builder.keyboardRow(new InlineKeyboardRow(
-                    button(label, CallbackData.build(CallbackAction.CANCEL, item.booking().getId()))));
+                    button("✏️ " + when, CallbackData.build(CallbackAction.CHANGE, item.booking().getId())),
+                    button("❌", CallbackData.build(CallbackAction.CANCEL, item.booking().getId()))));
         }
         return builder.build();
+    }
+
+    private static String cb(CallbackAction action, Long replaceBookingId, Object... args) {
+        if (replaceBookingId == null) {
+            return CallbackData.build(action, args);
+        }
+        Object[] withId = new Object[args.length + 1];
+        System.arraycopy(args, 0, withId, 0, args.length);
+        withId[args.length] = replaceBookingId;
+        return CallbackData.build(action, withId);
     }
 
     public static InlineKeyboardMarkup adminDatesKeyboard(CallbackAction action, List<LocalDate> dates, String emoji) {
