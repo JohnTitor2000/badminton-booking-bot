@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: badminton
+      POSTGRES_USER: badminton
+      POSTGRES_PASSWORD: badminton
+    volumes:
+      - badminton_pg_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U badminton"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bot:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/badminton
+      DB_USERNAME: badminton
+      DB_PASSWORD: badminton
+      BOT_TOKEN: ${BOT_TOKEN}
+      BOT_USERNAME: ${BOT_USERNAME}
+      ADMIN_IDS: ${ADMIN_IDS}
+      CHANNEL_ID: ${CHANNEL_ID}
+      DISCUSSION_CHAT_ID: ${DISCUSSION_CHAT_ID}
+      BADMINTON_TIMEZONE: ${BADMINTON_TIMEZONE:-Asia/Tbilisi}
+
+volumes:
+  badminton_pg_data:

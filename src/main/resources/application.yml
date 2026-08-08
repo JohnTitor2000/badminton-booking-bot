@@ -1,0 +1,51 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  application:
+    name: badminton-booking-bot
+  datasource:
+    # Локально — DB_*; на Railway автоматически подхватывается DATABASE_URL
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/badminton}
+    username: ${DB_USERNAME:badminton}
+    password: ${DB_PASSWORD:badminton}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+telegram:
+  bot-token: ${BOT_TOKEN:}
+  bot-username: ${BOT_USERNAME:}
+  # Telegram user IDs, разделённые запятой, кому разрешены админ-команды
+  admin-ids: ${ADMIN_IDS:}
+  # ID канала с анонсами и живой таблицей записи (например, -1001234567890)
+  channel-id: ${CHANNEL_ID:}
+  # Устарело: группа обсуждений больше не используется (оставлено для совместимости конфигов)
+  discussion-chat-id: ${DISCUSSION_CHAT_ID:}
+
+badminton:
+  timezone: ${BADMINTON_TIMEZONE:Asia/Tbilisi}
+  # Дни недели, когда проводятся тренировки
+  training-days: MONDAY,TUESDAY,WEDNESDAY,THURSDAY,SATURDAY
+  session-start: "08:00"
+  session-end: "11:00"
+  slot-step-minutes: 30
+  courts-count: 2
+  slot-capacity: 8
+  # За сколько дней до тренировки открывается запись
+  registration-lead-days: 2
+  # Время ежедневной проверки расписания и публикации анонсов
+  publish-time: "13:00"
+
+logging:
+  level:
+    root: INFO
+    com.badminton.bot: DEBUG
