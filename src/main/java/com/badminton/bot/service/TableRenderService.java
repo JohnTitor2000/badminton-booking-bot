@@ -96,9 +96,51 @@ public class TableRenderService {
         }
 
         if (event.isOpen()) {
-            sb.append("\nНажмите «Записаться» — бот продолжит в личке.");
+            sb.append("\n«Записаться» / «Кто записан» — бот продолжит в личке.");
         }
 
+        return sb.toString().trim();
+    }
+
+    /** Список записанных для лички (по кнопке с поста). */
+    public String renderPlayersList(Event event, List<Booking> bookings) {
+        String dateStr = event.getEventDate().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"));
+        Map<Long, Double> skills = playerSkillService.skillsBefore(
+                bookings.stream().map(Booking::getTelegramUserId).distinct().toList(),
+                event.getEventDate());
+
+        List<Booking> confirmed = bookings.stream()
+                .filter(b -> b.getStatus() == BookingStatus.CONFIRMED)
+                .sorted(Comparator.comparing(Booking::getStartSlot).thenComparing(Booking::getCreatedAt))
+                .toList();
+        List<Booking> waitlisted = bookings.stream()
+                .filter(b -> b.getStatus() == BookingStatus.WAITLISTED)
+                .sorted(Comparator.comparing(Booking::getCreatedAt))
+                .toList();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("👥 <b>Записанные на ").append(dateStr).append("</b>\n\n");
+        if (confirmed.isEmpty()) {
+            sb.append("Пока никто не записан.\n");
+        } else {
+            for (Booking b : confirmed) {
+                double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
+                sb.append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
+                        .append(" — ").append(nameOf(b))
+                        .append(" ·").append(SlotSkillModel.formatSkill(skill))
+                        .append(", ").append(b.getPartySize()).append(" чел.\n");
+            }
+        }
+        if (!waitlisted.isEmpty()) {
+            sb.append("\n⏳ <b>Лист ожидания:</b>\n");
+            for (Booking b : waitlisted) {
+                double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
+                sb.append("• ").append(nameOf(b))
+                        .append(" ·").append(SlotSkillModel.formatSkill(skill))
+                        .append(" (").append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
+                        .append(", ").append(b.getPartySize()).append(" чел.)\n");
+            }
+        }
         return sb.toString().trim();
     }
 

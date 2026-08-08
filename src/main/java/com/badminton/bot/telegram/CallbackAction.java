@@ -5,6 +5,8 @@ package com.badminton.bot.telegram;
  */
 public enum CallbackAction {
     START("st"),
+    /** Список записанных: args = eventId */
+    WHO("wh"),
     DURATION("du"),
     SLOT("sl"),
     CONFIRM("cf"),

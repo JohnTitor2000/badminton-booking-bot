@@ -34,22 +34,28 @@ public class KeyboardFactory {
     }
 
     /**
-     * Кнопка в канале: deep-link сразу открывает чат с ботом ({@code /start book_<eventId>}).
+     * Кнопки в канале: deep-link в бота ({@code /start book_<id>} / {@code who_<id>}).
      * Если username бота не задан — fallback на callback.
      */
     public static InlineKeyboardMarkup entryKeyboard(Long eventId, String botUsername) {
-        InlineKeyboardButton btn;
+        InlineKeyboardButton bookBtn;
+        InlineKeyboardButton whoBtn;
         if (botUsername != null && !botUsername.isBlank()) {
             String user = botUsername.startsWith("@") ? botUsername.substring(1) : botUsername;
-            btn = InlineKeyboardButton.builder()
+            bookBtn = InlineKeyboardButton.builder()
                     .text("🏸 Записаться")
                     .url("https://t.me/" + user + "?start=book_" + eventId)
                     .build();
+            whoBtn = InlineKeyboardButton.builder()
+                    .text("👥 Кто записан")
+                    .url("https://t.me/" + user + "?start=who_" + eventId)
+                    .build();
         } else {
-            btn = button("🏸 Записаться", CallbackData.build(CallbackAction.START, eventId));
+            bookBtn = button("🏸 Записаться", CallbackData.build(CallbackAction.START, eventId));
+            whoBtn = button("👥 Кто записан", CallbackData.build(CallbackAction.WHO, eventId));
         }
         return InlineKeyboardMarkup.builder()
-                .keyboardRow(new InlineKeyboardRow(btn))
+                .keyboardRow(new InlineKeyboardRow(bookBtn, whoBtn))
                 .build();
     }
 

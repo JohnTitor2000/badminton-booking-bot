@@ -80,6 +80,7 @@ public class BookingWizardHandler {
             }
             switch (data.action()) {
                 case START -> handleStart(callbackQuery, data);
+                case WHO -> handleWho(callbackQuery, data);
                 case CHANGE -> handleChange(callbackQuery, data);
                 case SAVE_PRESET -> handleSavePreset(callbackQuery, data);
                 case USE_PRESET -> handleUsePreset(callbackQuery, data);
@@ -119,6 +120,21 @@ public class BookingWizardHandler {
             return;
         }
         sender.answerCallback(cq.getId(), "Продолжите запись в личке с ботом");
+    }
+
+    private void handleWho(CallbackQuery cq, CallbackData data) {
+        long eventId = data.argLong(0);
+        Long userId = cq.getFrom().getId();
+        if (!commandDispatcher.sendPlayersList(userId, eventId)) {
+            String botMention = telegramProperties.botUsername() == null || telegramProperties.botUsername().isBlank()
+                    ? "боту"
+                    : "@" + telegramProperties.botUsername();
+            sender.answerCallback(cq.getId(),
+                    "Сначала напишите " + botMention + " в личку /start",
+                    true);
+            return;
+        }
+        sender.answerCallback(cq.getId(), "Список в личке с ботом");
     }
 
     /**

@@ -21,6 +21,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Команды и кнопки меню в личке: игроки и админы.
@@ -147,13 +148,24 @@ public class CommandDispatcher {
         String text = admin
                 ? "🏸 Привет! Меню админа снизу.\n\nВ канале — анонс и таблица, запись игроков идёт в личке."
                 : "🏸 Привет! Я бот записи на бадминтон.\n\n"
-                + "Анонсы публикуются в канале. Нажмите «Записаться» под постом — продолжим здесь.\n"
+                + "Анонсы в канале: «Записаться» и «Кто записан» — продолжим здесь.\n"
                 + "Кнопка «Мои записи» покажет ваши брони.";
         sender.send(chatId, text, KeyboardFactory.mainMenu(admin));
     }
 
     public void handleClosedEventHint(Long chatId) {
         sender.send(chatId, "🚫 Запись на это событие уже закрыта.", null);
+    }
+
+    /** Deep-link / callback: показать записанных на событие. */
+    public boolean sendPlayersList(Long chatId, long eventId) {
+        Optional<Event> eventOpt = eventService.findById(eventId);
+        if (eventOpt.isEmpty()) {
+            return sender.send(chatId, "Событие не найдено.", null).isPresent();
+        }
+        Event event = eventOpt.get();
+        List<Booking> bookings = bookingService.activeBookings(eventId);
+        return sender.send(chatId, tableRenderService.renderPlayersList(event, bookings), null).isPresent();
     }
 
     private void handleHowTo(Long chatId, boolean admin) {

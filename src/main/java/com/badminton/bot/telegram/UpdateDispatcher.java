@@ -59,6 +59,16 @@ public class UpdateDispatcher {
                     // обычный /start ниже
                 }
             }
+            if (payload.startsWith("who_")) {
+                try {
+                    long eventId = Long.parseLong(payload.substring("who_".length()));
+                    commandDispatcher.handle(message);
+                    commandDispatcher.sendPlayersList(message.getChatId(), eventId);
+                    return;
+                } catch (NumberFormatException ignored) {
+                    // обычный /start ниже
+                }
+            }
         }
         commandDispatcher.handle(message);
     }
