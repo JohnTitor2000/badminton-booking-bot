@@ -98,14 +98,7 @@ public class BookingWizardHandler {
             sender.answerCallback(cq.getId(), "Запись на это событие уже закрыта", true);
             return;
         }
-        Event event = eventOpt.get();
-        Long userId = cq.getFrom().getId();
-
-        String text = "🏸 Записываемся на " + eventDateLabel(event) + "\n\nВыберите длительность:";
-        InlineKeyboardMarkup keyboard = KeyboardFactory.durationKeyboard(
-                eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, null);
-
-        boolean sent = sender.sendPrivate(userId, text, keyboard);
+        boolean sent = startBookingWizard(cq.getFrom().getId(), eventId);
         if (!sent) {
             String botMention = telegramProperties.botUsername() == null || telegramProperties.botUsername().isBlank()
                     ? "боту"
@@ -116,6 +109,23 @@ public class BookingWizardHandler {
             return;
         }
         sender.answerCallback(cq.getId(), "Продолжите запись в личке с ботом");
+    }
+
+    /**
+     * Старт мастера из deep-link {@code /start book_<eventId>} или старого callback.
+     *
+     * @return false, если событие закрыто/не найдено или не удалось отправить сообщение
+     */
+    public boolean startBookingWizard(Long userId, long eventId) {
+        Optional<Event> eventOpt = eventService.findById(eventId);
+        if (eventOpt.isEmpty() || !eventOpt.get().isOpen()) {
+            return false;
+        }
+        Event event = eventOpt.get();
+        String text = "🏸 Записываемся на " + eventDateLabel(event) + "\n\nВыберите длительность:";
+        InlineKeyboardMarkup keyboard = KeyboardFactory.durationKeyboard(
+                eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, null);
+        return sender.sendPrivate(userId, text, keyboard);
     }
 
     private void handleChange(CallbackQuery cq, CallbackData data) {

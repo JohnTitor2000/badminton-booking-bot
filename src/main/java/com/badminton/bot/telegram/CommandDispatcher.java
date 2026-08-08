@@ -147,6 +147,10 @@ public class CommandDispatcher {
         sender.send(chatId, text, KeyboardFactory.mainMenu(admin));
     }
 
+    public void handleClosedEventHint(Long chatId) {
+        sender.send(chatId, "🚫 Запись на это событие уже закрыта.", null);
+    }
+
     private void handleHowTo(Long chatId, boolean admin) {
         sender.send(chatId, "ℹ️ <b>Как записаться</b>\n\n"
                 + "1. Откройте пост в канале\n"

@@ -37,8 +37,29 @@ public class UpdateDispatcher {
     }
 
     private void handleMessage(Message message) {
-        if (message.hasText() && message.getFrom() != null) {
-            commandDispatcher.handle(message);
+        if (!message.hasText() || message.getFrom() == null) {
+            return;
         }
+        // deep-link из канала: /start book_<eventId> — сразу открывает мастера записи
+        String text = message.getText().trim();
+        String[] parts = text.split("\\s+", 2);
+        String command = parts[0].split("@")[0].toLowerCase();
+        if ("/start".equals(command) && parts.length > 1) {
+            String payload = parts[1].trim();
+            if (payload.startsWith("book_")) {
+                try {
+                    long eventId = Long.parseLong(payload.substring("book_".length()));
+                    // меню (reply-клавиатура) + мастер записи
+                    commandDispatcher.handle(message);
+                    if (!bookingWizardHandler.startBookingWizard(message.getFrom().getId(), eventId)) {
+                        commandDispatcher.handleClosedEventHint(message.getChatId());
+                    }
+                    return;
+                } catch (NumberFormatException ignored) {
+                    // обычный /start ниже
+                }
+            }
+        }
+        commandDispatcher.handle(message);
     }
 }

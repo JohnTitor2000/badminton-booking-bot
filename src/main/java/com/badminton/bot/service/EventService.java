@@ -130,7 +130,7 @@ public class EventService {
         List<Booking> bookings = bookingService.activeBookings(event.getId());
         byte[] image = announcementImageService.render(event.getEventDate());
         String caption = announcementCaptionService.render(event, bookings);
-        var keyboard = KeyboardFactory.entryKeyboard(event.getId());
+        var keyboard = KeyboardFactory.entryKeyboard(event.getId(), telegramProperties.botUsername());
         String filename = "zaryadka-" + event.getEventDate().format(DateTimeFormatter.BASIC_ISO_DATE) + ".jpg";
 
         telegramSender.sendPhoto(telegramProperties.channelId(), image, filename, caption, keyboard)
@@ -151,7 +151,9 @@ public class EventService {
         }
         List<Booking> bookings = bookingService.activeBookings(eventId);
         String caption = announcementCaptionService.render(event, bookings);
-        var keyboard = event.isOpen() ? KeyboardFactory.entryKeyboard(event.getId()) : null;
+        var keyboard = event.isOpen()
+                ? KeyboardFactory.entryKeyboard(event.getId(), telegramProperties.botUsername())
+                : null;
         boolean edited = telegramSender.editCaption(channelId, event.getChannelMessageId(), caption, keyboard);
         if (!edited) {
             // пост пропал — публикуем заново

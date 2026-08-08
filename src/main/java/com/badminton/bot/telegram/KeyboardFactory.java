@@ -33,9 +33,23 @@ public class KeyboardFactory {
         return builder.build();
     }
 
-    public static InlineKeyboardMarkup entryKeyboard(Long eventId) {
+    /**
+     * Кнопка в канале: deep-link сразу открывает чат с ботом ({@code /start book_<eventId>}).
+     * Если username бота не задан — fallback на callback.
+     */
+    public static InlineKeyboardMarkup entryKeyboard(Long eventId, String botUsername) {
+        InlineKeyboardButton btn;
+        if (botUsername != null && !botUsername.isBlank()) {
+            String user = botUsername.startsWith("@") ? botUsername.substring(1) : botUsername;
+            btn = InlineKeyboardButton.builder()
+                    .text("🏸 Записаться")
+                    .url("https://t.me/" + user + "?start=book_" + eventId)
+                    .build();
+        } else {
+            btn = button("🏸 Записаться", CallbackData.build(CallbackAction.START, eventId));
+        }
         return InlineKeyboardMarkup.builder()
-                .keyboardRow(new InlineKeyboardRow(button("🏸 Записаться", CallbackData.build(CallbackAction.START, eventId))))
+                .keyboardRow(new InlineKeyboardRow(btn))
                 .build();
     }
 
