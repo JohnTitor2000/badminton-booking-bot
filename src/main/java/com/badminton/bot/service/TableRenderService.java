@@ -24,14 +24,14 @@ public class TableRenderService {
 
     private final SlotCalculator slotCalculator;
     private final BadmintonProperties properties;
-    private final PlayerVisitService playerVisitService;
+    private final PlayerSkillService playerSkillService;
 
     public TableRenderService(SlotCalculator slotCalculator,
                                BadmintonProperties properties,
-                               PlayerVisitService playerVisitService) {
+                               PlayerSkillService playerSkillService) {
         this.slotCalculator = slotCalculator;
         this.properties = properties;
-        this.playerVisitService = playerVisitService;
+        this.playerSkillService = playerSkillService;
     }
 
     public String render(Event event, List<Booking> bookings) {
@@ -49,7 +49,7 @@ public class TableRenderService {
 
     /** Только сетка слотов и лист ожидания — для подписи к картинке анонса. */
     public String renderSlotsOnly(Event event, List<Booking> bookings) {
-        Map<Long, Integer> visits = playerVisitService.visitCountsBefore(
+        Map<Long, Double> skills = playerSkillService.skillsBefore(
                 bookings.stream().map(Booking::getTelegramUserId).distinct().toList(),
                 event.getEventDate());
 
@@ -69,13 +69,14 @@ public class TableRenderService {
                 sb.append(" — свободно\n");
             } else {
                 anyNamed = true;
-                int levelSum = onSlot.stream()
-                        .mapToInt(b -> visits.getOrDefault(b.getTelegramUserId(), 0))
-                        .sum();
-                sb.append(" Σ").append(levelSum).append(": ");
+                List<Double> knownSkills = onSlot.stream()
+                        .map(b -> skills.getOrDefault(b.getTelegramUserId(), 0.0))
+                        .toList();
+                double slotSkill = SlotSkillModel.slotSkill(knownSkills);
+                sb.append(" ⚡").append(SlotSkillModel.formatSlotBadge(slotSkill)).append(": ");
                 List<String> names = new ArrayList<>();
                 for (Booking b : onSlot) {
-                    names.add(nameOf(b, visits.getOrDefault(b.getTelegramUserId(), 0)));
+                    names.add(nameOf(b, skills.getOrDefault(b.getTelegramUserId(), 0.0)));
                 }
                 sb.append(String.join(", ", names)).append("\n");
             }
@@ -89,15 +90,15 @@ public class TableRenderService {
         if (!waitlisted.isEmpty()) {
             sb.append("\n⏳ <b>Лист ожидания:</b>\n");
             for (Booking b : waitlisted) {
-                int v = visits.getOrDefault(b.getTelegramUserId(), 0);
-                sb.append("• ").append(nameOf(b, v))
+                double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
+                sb.append("• ").append(nameOf(b, skill))
                         .append(" (").append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
                         .append(", ").append(b.getPartySize()).append(" чел.)\n");
             }
         }
 
         if (anyNamed || !waitlisted.isEmpty()) {
-            sb.append("\n<code>·N</code> — сколько раз уже был(а), <code>Σ</code> — сумма на слоте");
+            sb.append("\n<code>·N</code> — скилл игрока 0–10, <code>⚡</code> — скилл слота (среднее), не сумма часов");
         }
 
         if (event.isOpen()) {
@@ -121,10 +122,10 @@ public class TableRenderService {
         return onSlot;
     }
 
-    private String nameOf(Booking b, int visits) {
+    private String nameOf(Booking b, double skill) {
         String linked = UserNames.mention(b.getDisplayName(), b.getTelegramUserId(), b.getUsername());
-        String withVisits = linked + "·" + visits;
-        return b.getPartySize() > 1 ? withVisits + " +" + (b.getPartySize() - 1) : withVisits;
+        String withSkill = linked + "·" + SlotSkillModel.formatSkill(skill);
+        return b.getPartySize() > 1 ? withSkill + " +" + (b.getPartySize() - 1) : withSkill;
     }
 
     private String capitalize(String s) {

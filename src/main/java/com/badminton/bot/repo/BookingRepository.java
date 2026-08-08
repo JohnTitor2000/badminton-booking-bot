@@ -34,4 +34,21 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
             """)
     List<Object[]> countConfirmedVisitsBefore(@Param("userIds") Collection<Long> userIds,
                                               @Param("beforeDate") LocalDate beforeDate);
+
+    /**
+     * Сумма duration_minutes подтверждённых записей до {@code beforeDate}.
+     * Возвращает пары [telegramUserId, minutes].
+     */
+    @Query("""
+            select b.telegramUserId, coalesce(sum(b.durationMinutes), 0)
+            from Booking b
+            join b.event e
+            where b.telegramUserId in :userIds
+              and b.status = com.badminton.bot.domain.BookingStatus.CONFIRMED
+              and e.status <> com.badminton.bot.domain.EventStatus.CANCELLED
+              and e.eventDate < :beforeDate
+            group by b.telegramUserId
+            """)
+    List<Object[]> sumConfirmedMinutesBefore(@Param("userIds") Collection<Long> userIds,
+                                             @Param("beforeDate") LocalDate beforeDate);
 }

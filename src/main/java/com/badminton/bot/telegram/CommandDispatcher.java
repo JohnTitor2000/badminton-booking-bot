@@ -8,7 +8,8 @@ import com.badminton.bot.domain.Event;
 import com.badminton.bot.service.BookingService;
 import com.badminton.bot.service.EventService;
 import com.badminton.bot.service.ExportService;
-import com.badminton.bot.service.PlayerVisitService;
+import com.badminton.bot.service.PlayerSkillService;
+import com.badminton.bot.service.SlotSkillModel;
 import com.badminton.bot.service.SlotCalculator;
 import com.badminton.bot.service.TableRenderService;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +36,7 @@ public class CommandDispatcher {
     private final SlotCalculator slotCalculator;
     private final TableRenderService tableRenderService;
     private final ExportService exportService;
-    private final PlayerVisitService playerVisitService;
+    private final PlayerSkillService playerSkillService;
     private final TelegramSender sender;
     private final TelegramProperties telegramProperties;
 
@@ -44,7 +45,7 @@ public class CommandDispatcher {
                               SlotCalculator slotCalculator,
                               TableRenderService tableRenderService,
                               ExportService exportService,
-                              PlayerVisitService playerVisitService,
+                              PlayerSkillService playerSkillService,
                               TelegramSender sender,
                               TelegramProperties telegramProperties) {
         this.eventService = eventService;
@@ -52,7 +53,7 @@ public class CommandDispatcher {
         this.slotCalculator = slotCalculator;
         this.tableRenderService = tableRenderService;
         this.exportService = exportService;
-        this.playerVisitService = playerVisitService;
+        this.playerSkillService = playerSkillService;
         this.sender = sender;
         this.telegramProperties = telegramProperties;
     }
@@ -233,20 +234,20 @@ public class CommandDispatcher {
                         sender.send(chatId, "На " + date.format(DATE_FORMAT) + " пока никто не записался.", null);
                         return;
                     }
-                    var visits = playerVisitService.visitCountsBefore(
+                    var skills = playerSkillService.skillsBefore(
                             bookings.stream().map(Booking::getTelegramUserId).toList(),
                             event.getEventDate());
                     StringBuilder sb = new StringBuilder("👥 <b>Записи на " + date.format(DATE_FORMAT) + ":</b>\n\n");
                     for (Booking b : bookings) {
-                        int v = visits.getOrDefault(b.getTelegramUserId(), 0);
+                        double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
                         sb.append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
                                 .append(" — ").append(b.getDisplayName())
                                 .append(b.getUsername() != null ? " (@" + b.getUsername() + ")" : "")
-                                .append(" ·").append(v)
+                                .append(" ·").append(SlotSkillModel.formatSkill(skill))
                                 .append(", ").append(b.getPartySize()).append(" чел., ")
                                 .append(statusLabel(b.getStatus())).append("\n");
                     }
-                    sb.append("\n<code>·N</code> — сколько раз уже был(а) до этого дня");
+                    sb.append("\n<code>·N</code> — скилл игрока 0–10 по наигранным часам");
                     sender.send(chatId, sb.toString(), null);
                 },
                 () -> sender.send(chatId, "Событие на " + date.format(DATE_FORMAT) + " не найдено.", null));
