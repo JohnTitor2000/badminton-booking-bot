@@ -15,6 +15,7 @@ import com.badminton.bot.service.TableRenderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.objects.message.Message;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -118,30 +119,31 @@ public class CommandDispatcher {
         }
     }
 
-    public void executeAdminDateAction(Long chatId, CallbackAction action, LocalDate date) {
-        switch (action) {
+    /** @return текст результата для показа в единой панели */
+    public String executeAdminDateAction(Long chatId, CallbackAction action, LocalDate date) {
+        return switch (action) {
             case ADMIN_PUBLISH -> {
                 Event event = eventService.createAndPublish(date, CreatedBy.ADMIN);
                 String hint = event.getChannelMessageId() != null
                         ? " Пост опубликован в канал."
                         : " Проверьте CHANNEL_ID и права бота.";
-                sender.send(chatId, "✅ Событие на " + date.format(DATE_FORMAT) + " создано." + hint, null);
+                yield "✅ Событие на " + date.format(DATE_FORMAT) + " создано." + hint;
             }
             case ADMIN_CANCEL -> {
                 eventService.cancelDate(date);
-                sender.send(chatId, "🚫 День " + date.format(DATE_FORMAT) + " отменён.", null);
+                yield "🚫 День " + date.format(DATE_FORMAT) + " отменён.";
             }
-            case ADMIN_CLOSE -> eventService.findByDate(date).ifPresentOrElse(
-                    event -> {
+            case ADMIN_CLOSE -> eventService.findByDate(date)
+                    .map(event -> {
                         eventService.closeEvent(event.getId());
-                        sender.send(chatId, "🔒 Запись на " + date.format(DATE_FORMAT) + " закрыта.", null);
-                    },
-                    () -> sender.send(chatId, "Событие на " + date.format(DATE_FORMAT) + " не найдено.", null));
-            case ADMIN_TABLE -> handleTable(chatId, date);
-            case ADMIN_BOOKINGS -> handleBookings(chatId, date);
-            case ADMIN_EXPORT -> handleExport(chatId, date);
-            default -> sender.send(chatId, "Неизвестное действие.", null);
-        }
+                        return "🔒 Запись на " + date.format(DATE_FORMAT) + " закрыта.";
+                    })
+                    .orElse("Событие на " + date.format(DATE_FORMAT) + " не найдено.");
+            case ADMIN_TABLE -> tableText(date);
+            case ADMIN_BOOKINGS -> bookingsText(date);
+            case ADMIN_EXPORT -> exportAndStatus(chatId, date);
+            default -> "Неизвестное действие.";
+        };
     }
 
     private void handleStart(Long chatId, boolean admin) {
@@ -150,33 +152,32 @@ public class CommandDispatcher {
                 : "🏸 Привет! Я бот записи на бадминтон.\n\n"
                 + "Анонсы в канале: «Записаться» и «Кто записан» — продолжим здесь.\n"
                 + "Кнопка «Мои записи» покажет ваши брони.";
-        sender.send(chatId, text, KeyboardFactory.mainMenu(admin));
+        panel(chatId, text, null);
     }
 
     public void handleClosedEventHint(Long chatId) {
-        sender.send(chatId, "🚫 Запись на это событие уже закрыта.", null);
+        panel(chatId, "🚫 Запись на это событие уже закрыта.", null);
     }
 
     /** Deep-link / callback: показать записанных на событие. */
     public boolean sendPlayersList(Long chatId, long eventId) {
         Optional<Event> eventOpt = eventService.findById(eventId);
         if (eventOpt.isEmpty()) {
-            return sender.send(chatId, "Событие не найдено.", null).isPresent();
+            return panel(chatId, "Событие не найдено.", null);
         }
         Event event = eventOpt.get();
         List<Booking> bookings = bookingService.activeBookings(eventId);
-        return sender.send(chatId, tableRenderService.renderPlayersList(event, bookings), null).isPresent();
+        return panel(chatId, tableRenderService.renderPlayersList(event, bookings), null);
     }
 
     private void handleHowTo(Long chatId, boolean admin) {
-        sender.send(chatId, "ℹ️ <b>Как записаться</b>\n\n"
+        panel(chatId, "ℹ️ <b>Как записаться</b>\n\n"
                 + "1. Откройте пост в канале\n"
                 + "2. Нажмите «Записаться»\n"
                 + "3. В личке выберите длительность, время и число человек\n"
                 + "4. Если мест нет — попадёте в лист ожидания\n"
                 + "5. Можно сохранить вариант как пресет — в следующий раз запись в один клик\n\n"
-                + "Изменить или отменить запись — кнопка «Мои записи».",
-                KeyboardFactory.mainMenu(admin));
+                + "Изменить или отменить запись — кнопка «Мои записи».", null);
     }
 
     private void handleMy(Long chatId, Long userId) {
@@ -193,17 +194,17 @@ public class CommandDispatcher {
             }
         }
         if (buttons.isEmpty()) {
-            sender.send(chatId, "📋 Пока нет активных записей.", null);
+            panel(chatId, "📋 Пока нет активных записей.", null);
             return;
         }
         sb.append("\n✏️ изменить · ❌ отменить");
-        sender.send(chatId, sb.toString(), KeyboardFactory.myBookingsKeyboard(buttons, slotCalculator));
+        panel(chatId, sb.toString(), KeyboardFactory.myBookingsKeyboard(buttons, slotCalculator));
     }
 
     private void handleEvents(Long chatId) {
         List<Event> events = eventService.findOpenEvents();
         if (events.isEmpty()) {
-            sender.send(chatId, "Сейчас нет открытых событий.", null);
+            panel(chatId, "Сейчас нет открытых событий.", null);
             return;
         }
         StringBuilder sb = new StringBuilder("📅 <b>Открытые события:</b>\n\n");
@@ -212,7 +213,7 @@ public class CommandDispatcher {
                     .append(event.getChannelMessageId() == null ? " — пост ещё не опубликован" : " — в канале")
                     .append("\n");
         }
-        sender.send(chatId, sb.toString(), null);
+        panel(chatId, sb.toString(), null);
     }
 
     private void askOpenDate(Long chatId, CallbackAction action, String emoji, String prompt) {
@@ -224,55 +225,56 @@ public class CommandDispatcher {
 
     private void askDate(Long chatId, CallbackAction action, String emoji, String prompt, List<LocalDate> dates) {
         if (dates.isEmpty()) {
-            sender.send(chatId, "Нет подходящих дат.", null);
+            panel(chatId, "Нет подходящих дат.", null);
             return;
         }
-        sender.send(chatId, prompt, KeyboardFactory.adminDatesKeyboard(action, dates, emoji));
+        panel(chatId, prompt, KeyboardFactory.adminDatesKeyboard(action, dates, emoji));
     }
 
-    private void handleTable(Long chatId, LocalDate date) {
-        eventService.findByDate(date).ifPresentOrElse(
-                event -> sender.send(chatId, tableRenderService.render(event, bookingService.activeBookings(event.getId())), null),
-                () -> sender.send(chatId, "Событие на " + date.format(DATE_FORMAT) + " не найдено.", null));
+    private String tableText(LocalDate date) {
+        return eventService.findByDate(date)
+                .map(event -> tableRenderService.render(event, bookingService.activeBookings(event.getId())))
+                .orElse("Событие на " + date.format(DATE_FORMAT) + " не найдено.");
     }
 
-    private void handleBookings(Long chatId, LocalDate date) {
-        eventService.findByDate(date).ifPresentOrElse(
-                event -> {
-                    List<Booking> bookings = bookingService.activeBookings(event.getId()).stream()
-                            .sorted(Comparator.comparing(Booking::getStartSlot).thenComparing(Booking::getCreatedAt))
-                            .toList();
-                    if (bookings.isEmpty()) {
-                        sender.send(chatId, "На " + date.format(DATE_FORMAT) + " пока никто не записался.", null);
-                        return;
-                    }
-                    var skills = playerSkillService.skillsBefore(
-                            bookings.stream().map(Booking::getTelegramUserId).toList(),
-                            event.getEventDate());
-                    StringBuilder sb = new StringBuilder("👥 <b>Записи на " + date.format(DATE_FORMAT) + ":</b>\n\n");
-                    for (Booking b : bookings) {
-                        double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
-                        sb.append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
-                                .append(" — ").append(b.getDisplayName())
-                                .append(b.getUsername() != null ? " (@" + b.getUsername() + ")" : "")
-                                .append(" ·").append(SlotSkillModel.formatSkill(skill))
-                                .append(", ").append(b.getPartySize()).append(" чел., ")
-                                .append(statusLabel(b.getStatus())).append("\n");
-                    }
-                    sb.append("\n<code>·N</code> — скилл игрока 0–10 по наигранным часам");
-                    sender.send(chatId, sb.toString(), null);
-                },
-                () -> sender.send(chatId, "Событие на " + date.format(DATE_FORMAT) + " не найдено.", null));
+    private String bookingsText(LocalDate date) {
+        return eventService.findByDate(date).map(event -> {
+            List<Booking> bookings = bookingService.activeBookings(event.getId()).stream()
+                    .sorted(Comparator.comparing(Booking::getStartSlot).thenComparing(Booking::getCreatedAt))
+                    .toList();
+            if (bookings.isEmpty()) {
+                return "На " + date.format(DATE_FORMAT) + " пока никто не записался.";
+            }
+            var skills = playerSkillService.skillsBefore(
+                    bookings.stream().map(Booking::getTelegramUserId).toList(),
+                    event.getEventDate());
+            StringBuilder sb = new StringBuilder("👥 <b>Записи на " + date.format(DATE_FORMAT) + ":</b>\n\n");
+            for (Booking b : bookings) {
+                double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
+                sb.append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
+                        .append(" — ").append(b.getDisplayName())
+                        .append(b.getUsername() != null ? " (@" + b.getUsername() + ")" : "")
+                        .append(" ·").append(SlotSkillModel.formatSkill(skill))
+                        .append(", ").append(b.getPartySize()).append(" чел., ")
+                        .append(statusLabel(b.getStatus())).append("\n");
+            }
+            sb.append("\n<code>·N</code> — скилл игрока 0–10 по наигранным часам");
+            return sb.toString();
+        }).orElse("Событие на " + date.format(DATE_FORMAT) + " не найдено.");
     }
 
-    private void handleExport(Long chatId, LocalDate date) {
-        eventService.findByDate(date).ifPresentOrElse(
-                event -> {
-                    byte[] csv = exportService.toCsv(event, bookingService.activeBookings(event.getId()));
-                    sender.sendDocument(chatId, "badminton_" + date.format(DATE_FORMAT).replace('.', '_') + ".csv",
-                            csv, "Экспорт записей на " + date.format(DATE_FORMAT));
-                },
-                () -> sender.send(chatId, "Событие на " + date.format(DATE_FORMAT) + " не найдено.", null));
+    private String exportAndStatus(Long chatId, LocalDate date) {
+        return eventService.findByDate(date).map(event -> {
+            byte[] csv = exportService.toCsv(event, bookingService.activeBookings(event.getId()));
+            sender.sendDocument(chatId, "badminton_" + date.format(DATE_FORMAT).replace('.', '_') + ".csv",
+                    csv, "Экспорт записей на " + date.format(DATE_FORMAT));
+            return "⬇️ CSV для " + date.format(DATE_FORMAT) + " отправлен отдельным файлом.";
+        }).orElse("Событие на " + date.format(DATE_FORMAT) + " не найдено.");
+    }
+
+    private boolean panel(Long chatId, String text, InlineKeyboardMarkup inline) {
+        boolean admin = telegramProperties.isAdmin(chatId);
+        return sender.showPanel(chatId, text, inline, KeyboardFactory.mainMenu(admin));
     }
 
     private void handleLegacyAdminCommand(Long chatId, String text) {
@@ -286,7 +288,7 @@ public class CommandDispatcher {
 
     private void requireAdmin(Long chatId, Long userId, Runnable action) {
         if (!telegramProperties.isAdmin(userId)) {
-            sender.send(chatId, "🚫 Это только для администратора.", null);
+            panel(chatId, "🚫 Это только для администратора.", null);
             return;
         }
         action.run();

@@ -49,8 +49,7 @@ public class UpdateDispatcher {
             if (payload.startsWith("book_")) {
                 try {
                     long eventId = Long.parseLong(payload.substring("book_".length()));
-                    // меню (reply-клавиатура) + мастер записи
-                    commandDispatcher.handle(message);
+                    // один экран: сразу мастер (меню reply подтянется при создании панели)
                     if (!bookingWizardHandler.startBookingWizard(message.getFrom().getId(), eventId)) {
                         commandDispatcher.handleClosedEventHint(message.getChatId());
                     }
@@ -62,7 +61,6 @@ public class UpdateDispatcher {
             if (payload.startsWith("who_")) {
                 try {
                     long eventId = Long.parseLong(payload.substring("who_".length()));
-                    commandDispatcher.handle(message);
                     commandDispatcher.sendPlayersList(message.getChatId(), eventId);
                     return;
                 } catch (NumberFormatException ignored) {

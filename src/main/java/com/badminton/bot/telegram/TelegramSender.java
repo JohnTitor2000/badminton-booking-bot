@@ -29,9 +29,11 @@ import java.util.Optional;
 public class TelegramSender {
 
     private final TelegramClient telegramClient;
+    private final UserPanelStore panelStore;
 
-    public TelegramSender(TelegramClient telegramClient) {
+    public TelegramSender(TelegramClient telegramClient, UserPanelStore panelStore) {
         this.telegramClient = telegramClient;
+        this.panelStore = panelStore;
     }
 
     /**
@@ -170,11 +172,47 @@ public class TelegramSender {
                 builder.replyMarkup(keyboard);
             }
             telegramClient.execute(builder.build());
+            panelStore.put(chatId, messageId);
             return true;
         } catch (TelegramApiException e) {
+            String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+            if (msg.contains("message is not modified")) {
+                panelStore.put(chatId, messageId);
+                return true;
+            }
             log.warn("Не удалось отредактировать сообщение {} в chat={}: {}", messageId, chatId, e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Один экран в личке: правит сохранённое сообщение или создаёт новое.
+     * {@code menuIfNew} — reply-клавиатура только при создании (потом остаётся в чате).
+     */
+    public boolean showPanel(Long userId, String text, InlineKeyboardMarkup inline, ReplyKeyboard menuIfNew) {
+        Integer messageId = panelStore.get(userId);
+        if (messageId != null && editText(userId, messageId, text, inline)) {
+            return true;
+        }
+        if (messageId != null) {
+            panelStore.clear(userId);
+        }
+
+        ReplyKeyboard firstMarkup = menuIfNew != null ? menuIfNew : inline;
+        Optional<Message> sent = send(userId, text, firstMarkup);
+        if (sent.isEmpty()) {
+            return false;
+        }
+        Integer newId = sent.get().getMessageId();
+        panelStore.put(userId, newId);
+        if (menuIfNew != null && inline != null) {
+            editText(userId, newId, text, inline);
+        }
+        return true;
+    }
+
+    public boolean showPanel(Long userId, String text, InlineKeyboardMarkup inline) {
+        return showPanel(userId, text, inline, null);
     }
 
     public void clearKeyboard(Long chatId, Integer messageId) {
@@ -225,6 +263,6 @@ public class TelegramSender {
     }
 
     public boolean sendPrivate(Long userId, String text, InlineKeyboardMarkup keyboard) {
-        return send(userId, text, keyboard).isPresent();
+        return showPanel(userId, text, keyboard, null);
     }
 }

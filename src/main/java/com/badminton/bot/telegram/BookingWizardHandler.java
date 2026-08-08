@@ -148,16 +148,18 @@ public class BookingWizardHandler {
             return false;
         }
         Event event = eventOpt.get();
+        var menu = KeyboardFactory.mainMenu(telegramProperties.isAdmin(userId));
         Optional<BookingPreset> preset = presetService.findValid(userId);
         if (preset.isPresent()) {
             String label = presetLabel(preset.get());
             String text = "🏸 Записываемся на " + eventDateLabel(event) + "\n\n"
                     + "Сохранённый вариант: <b>" + label + "</b>\n"
                     + "Использовать его или выбрать время вручную?";
-            return sender.sendPrivate(userId, text, KeyboardFactory.entryChoiceKeyboard(eventId, label));
+            return sender.showPanel(userId, text, KeyboardFactory.entryChoiceKeyboard(eventId, label), menu);
         }
-        return sender.sendPrivate(userId, manualStartText(event),
-                KeyboardFactory.durationKeyboard(eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, null));
+        return sender.showPanel(userId, manualStartText(event),
+                KeyboardFactory.durationKeyboard(eventId, slotCalculator.durationOptionsMinutes(), slotCalculator, null),
+                menu);
     }
 
     private void handleSavePreset(CallbackQuery cq, CallbackData data) {
@@ -486,9 +488,8 @@ public class BookingWizardHandler {
             return;
         }
         sender.answerCallback(cq.getId(), "Ок");
-        editWizardMessage(cq, "⏳ Выполняю…", null);
-        commandDispatcher.executeAdminDateAction(cq.getMessage().getChatId(), data.action(), date);
-        editWizardMessage(cq, "✅ Готово для " + date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")), null);
+        String result = commandDispatcher.executeAdminDateAction(cq.getMessage().getChatId(), data.action(), date);
+        editWizardMessage(cq, result, null);
     }
 
     private void notifyPromoted(List<Booking> promoted) {
@@ -497,7 +498,8 @@ public class BookingWizardHandler {
                     + slotCalculator.formatSlotRange(booking.getStartSlot(), booking.getDurationMinutes())
                     + " теперь подтверждена.";
             InlineKeyboardMarkup keyboard = KeyboardFactory.bookingActionsKeyboard(booking.getId());
-            sender.sendPrivate(booking.getTelegramUserId(), text, keyboard);
+            Long uid = booking.getTelegramUserId();
+            sender.showPanel(uid, text, keyboard, KeyboardFactory.mainMenu(telegramProperties.isAdmin(uid)));
         }
     }
 
@@ -524,7 +526,10 @@ public class BookingWizardHandler {
     private void editWizardMessage(CallbackQuery cq, String text, InlineKeyboardMarkup keyboard) {
         Long chatId = cq.getMessage().getChatId();
         Integer messageId = cq.getMessage().getMessageId();
-        sender.editText(chatId, messageId, text, keyboard);
+        if (!sender.editText(chatId, messageId, text, keyboard)) {
+            sender.showPanel(chatId, text, keyboard,
+                    KeyboardFactory.mainMenu(telegramProperties.isAdmin(cq.getFrom().getId())));
+        }
     }
 
     private String eventDateLabel(Event event) {
