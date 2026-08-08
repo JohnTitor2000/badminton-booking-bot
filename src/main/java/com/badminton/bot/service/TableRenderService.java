@@ -4,6 +4,7 @@ import com.badminton.bot.config.BadmintonProperties;
 import com.badminton.bot.domain.Booking;
 import com.badminton.bot.domain.BookingStatus;
 import com.badminton.bot.domain.Event;
+import com.badminton.bot.util.UserNames;
 import org.springframework.stereotype.Component;
 
 import java.time.format.DateTimeFormatter;
@@ -97,7 +98,8 @@ public class TableRenderService {
     }
 
     private String nameOf(Booking b) {
-        return b.getPartySize() > 1 ? b.getDisplayName() + " +" + (b.getPartySize() - 1) : b.getDisplayName();
+        String linked = UserNames.mention(b.getDisplayName(), b.getTelegramUserId(), b.getUsername());
+        return b.getPartySize() > 1 ? linked + " +" + (b.getPartySize() - 1) : linked;
     }
 
     private String capitalize(String s) {

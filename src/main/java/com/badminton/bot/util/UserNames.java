@@ -27,10 +27,25 @@ public class UserNames {
         return sb.toString();
     }
 
+    /** HTML-ссылка на профиль: имя кликабельно в канале/личке. */
     public static String mention(String displayName, Long userId, String username) {
+        String label = escapeHtml(displayName == null || displayName.isBlank() ? "Игрок" : displayName);
+        String href;
         if (username != null && !username.isBlank()) {
-            return "@" + username;
+            href = "https://t.me/" + username.replace("@", "");
+        } else if (userId != null) {
+            href = "tg://user?id=" + userId;
+        } else {
+            return label;
         }
-        return "<a href=\"tg://user?id=" + userId + "\">" + displayName + "</a>";
+        return "<a href=\"" + href + "\">" + label + "</a>";
+    }
+
+    public static String escapeHtml(String text) {
+        return text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
     }
 }
