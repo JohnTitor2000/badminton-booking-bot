@@ -8,8 +8,6 @@ import com.badminton.bot.domain.Event;
 import com.badminton.bot.service.BookingService;
 import com.badminton.bot.service.EventService;
 import com.badminton.bot.service.ExportService;
-import com.badminton.bot.service.PlayerSkillService;
-import com.badminton.bot.service.SlotSkillModel;
 import com.badminton.bot.service.SlotCalculator;
 import com.badminton.bot.service.TableRenderService;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +36,6 @@ public class CommandDispatcher {
     private final SlotCalculator slotCalculator;
     private final TableRenderService tableRenderService;
     private final ExportService exportService;
-    private final PlayerSkillService playerSkillService;
     private final TelegramSender sender;
     private final TelegramProperties telegramProperties;
 
@@ -47,7 +44,6 @@ public class CommandDispatcher {
                               SlotCalculator slotCalculator,
                               TableRenderService tableRenderService,
                               ExportService exportService,
-                              PlayerSkillService playerSkillService,
                               TelegramSender sender,
                               TelegramProperties telegramProperties) {
         this.eventService = eventService;
@@ -55,7 +51,6 @@ public class CommandDispatcher {
         this.slotCalculator = slotCalculator;
         this.tableRenderService = tableRenderService;
         this.exportService = exportService;
-        this.playerSkillService = playerSkillService;
         this.sender = sender;
         this.telegramProperties = telegramProperties;
     }
@@ -245,21 +240,14 @@ public class CommandDispatcher {
             if (bookings.isEmpty()) {
                 return "На " + date.format(DATE_FORMAT) + " пока никто не записался.";
             }
-            List<Long> userIds = bookings.stream().map(Booking::getTelegramUserId).toList();
-            var minutes = playerSkillService.minutesPlayedBefore(userIds, event.getEventDate());
-            var skills = playerSkillService.skillsBefore(userIds, event.getEventDate());
             StringBuilder sb = new StringBuilder("👥 <b>Записи на " + date.format(DATE_FORMAT) + ":</b>\n\n");
             for (Booking b : bookings) {
-                long mins = minutes.getOrDefault(b.getTelegramUserId(), 0L);
-                double skill = skills.getOrDefault(b.getTelegramUserId(), 0.0);
                 sb.append(slotCalculator.formatSlotRange(b.getStartSlot(), b.getDurationMinutes()))
                         .append(" — ").append(b.getDisplayName())
                         .append(b.getUsername() != null ? " (@" + b.getUsername() + ")" : "")
-                        .append("\n   ").append(b.getPartySize()).append(" чел. · ")
-                        .append(SlotSkillModel.formatPlayerStats(mins, skill))
-                        .append(" · ").append(statusLabel(b.getStatus())).append("\n");
+                        .append(", ").append(b.getPartySize()).append(" чел., ")
+                        .append(statusLabel(b.getStatus())).append("\n");
             }
-            sb.append("\n⏱ наиграно до этого дня · скилл 0–10");
             return sb.toString();
         }).orElse("Событие на " + date.format(DATE_FORMAT) + " не найдено.");
     }
